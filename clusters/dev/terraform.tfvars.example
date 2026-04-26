@@ -1,0 +1,182 @@
+# Copy to terraform.tfvars and edit. DO NOT commit terraform.tfvars.
+
+kubeconfig_path = "~/.kube/config"
+kube_context    = "docker-desktop"
+
+# Use a real domain you control, or nip.io for zero-config local:
+#   domain = "127.0.0.1.nip.io"
+domain = "dev.example.com"
+
+# --- Storage (Docker Desktop: "hostpath") ---
+storage_class         = "hostpath"
+postgres_storage_size = "8Gi"
+
+# --- Routing (Gateway API via Traefik) ---
+gateway_api_enabled  = true
+traefik_service_type = "LoadBalancer"
+
+# --- TLS mode ---
+# One of: "off" | "selfsigned" | "letsencrypt-staging" | "letsencrypt-prod"
+#   off                  → plain HTTP, no cert-manager
+#   selfsigned           → internal CA, browsers need platform-root-ca trusted
+#   letsencrypt-staging  → ACME staging (fake CA, for dry-runs, no rate limits)
+#   letsencrypt-prod     → ACME prod (real trusted certs)
+# Let's Encrypt modes require letsencrypt_email + a working DNS-01 provider.
+tls_mode = "selfsigned"
+
+# Required for letsencrypt-* modes, ignored otherwise:
+letsencrypt_email         = ""
+dns_provider              = "none"       # "cloudflare" | "route53" | "none"
+cloudflare_api_token      = ""
+route53_region            = ""
+route53_hosted_zone_id    = ""
+route53_access_key_id     = ""
+route53_secret_access_key = ""
+
+# Override auto-derived TLS secret name (advanced — leave empty in most cases):
+gateway_tls_secret_name = ""
+
+# --- Keycloak admin ---
+keycloak_admin_user     = "admin"
+keycloak_admin_password = "CHANGE-ME"
+
+# --- Realm seeding (two-phase apply) ---
+# Phase 1: realm_enabled = false (brings up Keycloak)
+# Phase 2: realm_enabled = true  (seeds platform realm + clients)
+realm_enabled = false
+
+bootstrap_admin_user               = ""
+bootstrap_admin_email              = ""
+bootstrap_admin_password           = ""
+bootstrap_admin_password_temporary = true # set false to use the tfvars password as-is (dev only)
+bootstrap_admin_first_name         = ""
+bootstrap_admin_last_name          = ""
+
+# OIDC client secrets used by the PLATFORM realm.
+# Must match what terraform-seeds into Keycloak.
+argocd_oidc_client_secret = "CHANGE-ME"
+hermes_client_secret      = "CHANGE-ME"
+
+# --- Argo CD ---
+argocd_source_repos = [
+  "https://git.dev.openschema.io/*",
+]
+
+# --- Forgejo (in-cluster git, dev only) ---
+# Deploy after realm_enabled=true. Enables OIDC against platform realm.
+forgejo_enabled = false
+
+forgejo_admin_username     = "forgejo-admin"
+forgejo_admin_email        = "admin@example.com"
+forgejo_admin_password     = "CHANGE-ME"
+forgejo_oidc_client_secret = "CHANGE-ME" # must match the 'forgejo' client in platform realm
+
+forgejo_repo_storage_size     = "20Gi"
+forgejo_postgres_storage_size = "8Gi"
+
+forgejo_disable_registration = true        # rely on OIDC
+forgejo_require_signin_view  = true        # no public browsing
+forgejo_ssh_service_type     = "ClusterIP" # cluster-internal SSH only
+
+# --- Harbor (container registry, dev only) ---
+# Deploy after realm_enabled=true. OIDC wired post-install via Harbor API.
+harbor_enabled = false
+
+harbor_admin_password     = "CHANGE-ME"
+harbor_oidc_client_secret = "CHANGE-ME" # must match the 'harbor' client in platform realm
+
+harbor_registry_storage_size = "50Gi"
+harbor_database_storage_size = "8Gi"
+
+# With letsencrypt-staging or self-signed dev, Harbor must NOT verify
+# Keycloak's cert or OIDC login will fail.
+harbor_oidc_verify_cert = false
+
+# --- DevPod operator + CRD (dev only) ---
+# Phase A: devpod_operator_enabled=true, run_controller=false
+#   → installs the CRD + namespace (platform-devpods) only.
+#     You can kubectl-apply DevPod CRs by hand for testing.
+# Phase B: run_controller=true
+#   → also deploys the operator Deployment (image must be built + pushed to Harbor first).
+devpod_operator_enabled        = false
+devpod_operator_run_controller = false
+
+# devpod_operator_image   = "registry.dev.openschema.io/library/devpod-operator:latest"
+# devpod_default_image    = "registry.dev.openschema.io/library/devpod-base:latest"
+
+# --- Forgejo Runner (CI) ---
+# Requires forgejo_enabled=true and Forgejo admin credentials (above).
+# Harbor robot-account creds are optional — without them the runner can
+# only build, not push.
+#
+# Create a Harbor robot account at registry.dev.openschema.io → Administration
+# → Robot Accounts, with push/pull on the `library` project. Copy the secret
+# into forgejo_runner_registry_password.
+forgejo_runner_enabled    = false
+forgejo_runner_replicas   = 1
+forgejo_runner_cache_size = "10Gi"
+
+forgejo_runner_registry_username = ""
+forgejo_runner_registry_password = ""
+
+# --- Hermes (single pod: hermes-agent + hermes-webui, shared PVC) ---
+# oauth2-proxy (below) fronts this and handles Keycloak auth.
+hermes_enabled = false
+
+# hermes_agent_image = "nousresearch/hermes-agent:latest"
+# hermes_webui_image = "ghcr.io/nesquena/hermes-webui:latest"
+# hermes_image_pull_secret = ""
+
+hermes_storage_size           = "10Gi"
+hermes_workspace_storage_size = "10Gi"
+
+# Both containers run as UID/GID 10000 by default so they share the PVC
+# without permission errors.
+hermes_run_as_uid = 10000
+hermes_run_as_gid = 10000
+
+hermes_default_provider = "openrouter"
+hermes_default_model    = "anthropic/claude-sonnet-4.7"
+
+# LLM provider API keys — pass via TF_VAR_hermes_llm_api_keys in CI.
+hermes_llm_api_keys = {
+  # OPENROUTER_API_KEY = "sk-or-..."
+  # ANTHROPIC_API_KEY  = "sk-ant-..."
+}
+
+# Leave empty — oauth2-proxy in front handles auth.
+hermes_webui_password = ""
+
+hermes_cluster_access_enabled = false
+
+# --- OpenFGA (authorization engine for the Hermes project spawner) ---
+# Deploys OpenFGA + its Postgres-backed store into `platform-openfga`.
+# On first apply, a bootstrap Job creates the store and writes the
+# project-authz model; IDs land in Secret `openfga-bootstrap` for the
+# spawner to consume.
+openfga_enabled     = true
+openfga_db_password = "CHANGE-ME"
+
+# --- Monitoring (Prometheus + Grafana + Loki + Alloy) ---
+# Installs kube-prometheus-stack (Prometheus, Alertmanager, Grafana,
+# node-exporter, kube-state-metrics) + Loki + Grafana Alloy DaemonSet.
+# Grafana is fronted by Keycloak OIDC via the platform realm (enable with
+# realm_enabled=true). Exposed at grafana.<domain>.
+monitoring_enabled         = false
+grafana_admin_password     = "CHANGE-ME"            # break-glass local admin
+grafana_oidc_client_secret = "CHANGE-ME"            # must match the 'grafana' client in platform realm
+
+monitoring_prometheus_storage_size   = "20Gi"
+monitoring_prometheus_retention      = "15d"
+monitoring_alertmanager_storage_size = "2Gi"
+monitoring_grafana_storage_size      = "5Gi"
+monitoring_loki_storage_size         = "20Gi"
+monitoring_loki_retention            = "168h"       # 7 days
+
+# --- oauth2-proxy (protects hermes.<domain> via Keycloak PLATFORM realm) ---
+# The `oauth2-proxy` client is auto-registered in the platform realm by the
+# keycloak-realm module. The client_secret below must match — Terraform
+# sets both sides from this variable.
+oauth2_proxy_client_id     = "oauth2-proxy"
+oauth2_proxy_client_secret = "CHANGE-ME"
+oauth2_proxy_email_domains = ["*"] # restrict with e.g. ["openschema.io"]
