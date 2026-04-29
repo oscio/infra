@@ -320,8 +320,11 @@ resource "kubernetes_config_map" "app_env" {
 }
 
 # ServiceAccount + ClusterRole the api pod uses to talk to the K8s API
-# when provisioning per-owner VM workloads. Cluster-scoped because the
-# api creates new namespaces (`resource-vm-<owner>`) on demand.
+# when provisioning workloads. All VMs/Volumes/LBs/Agents share a
+# single `resource` namespace; ownership is enforced at the application
+# layer via OpenFGA tuples, not via namespace isolation. Cluster-scoped
+# is kept (instead of namespaced Role) because the api creates the
+# `resource` namespace itself on first use.
 resource "kubernetes_service_account_v1" "api" {
   metadata {
     name      = "${local.api_service_name}-vms"
@@ -357,15 +360,23 @@ resource "kubernetes_cluster_role_v1" "api_vms" {
     resources  = ["pods"]
     verbs      = ["get", "list"]
   }
-  # Per-VM HTTPRoute (`<slug>-{term,vnc}.vm.<domain>`). The api creates
-  # one in each VM's namespace and tears it down on delete.
+  # Read EndpointSlices to compute LB readiness (any endpoint with
+  # `conditions.ready != false` flips status from Pending to Ready).
+  rule {
+    api_groups = ["discovery.k8s.io"]
+    resources  = ["endpointslices"]
+    verbs      = ["get", "list"]
+  }
+  # Per-resource HTTPRoute under the unified `resource` namespace —
+  # one per VM service (term/code/vnc), one per LB, one per agent.
   rule {
     api_groups = ["gateway.networking.k8s.io"]
     resources  = ["httproutes"]
     verbs      = ["get", "list", "create", "delete", "patch", "update"]
   }
-  # Per-VM Traefik Middlewares (vm-auth-oauth, vm-auth-fga) cloned into
-  # each VM namespace so HTTPRoute extensionRefs resolve locally.
+  # Auth Middlewares (vm-auth-oauth/fga, agent-auth-oauth/fga) live
+  # once in the `resource` namespace so HTTPRoute extensionRefs can
+  # resolve them locally.
   rule {
     api_groups = ["traefik.io"]
     resources  = ["middlewares"]
