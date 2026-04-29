@@ -39,8 +39,8 @@ variable "replicas" {
   default     = 1
 }
 
-variable "admin_user" {
-  description = "Bootstrap admin username."
+variable "admin_username" {
+  description = "Bootstrap admin username (master realm). Configurable; the Keycloak entrypoint reads it from KEYCLOAK_ADMIN at first boot."
   type        = string
   default     = "admin"
 }
@@ -104,4 +104,28 @@ variable "extra_values" {
   description = "Extra Helm values merged on top of module defaults (YAML string)."
   type        = string
   default     = ""
+}
+
+variable "tls_enabled" {
+  description = "Whether the gateway terminates TLS for the Keycloak hostname. Drives the URL scheme used by the post-deploy readiness probe (so callers don't have to know the scheme)."
+  type        = bool
+  default     = true
+}
+
+variable "wait_for_public_url" {
+  description = "After the Helm release is healthy, block until https://<hostname>/realms/master/... responds 200. Lets a single `terraform apply` proceed straight into the keycloak-realm module without the documented `wait 30s and re-run` step. Disable only if the Terraform host can't reach the gateway."
+  type        = bool
+  default     = true
+}
+
+variable "local_resolve_ip" {
+  description = "Optional IP for curl --resolve <hostname>:<port>:<ip> in the public-readiness probe. Use when the local Terraform host can't resolve the Keycloak hostname (e.g. dnsmasq stale / no /etc/hosts entry) but can reach the gateway IP directly (LAN or Tailscale)."
+  type        = string
+  default     = ""
+}
+
+variable "local_resolve_port" {
+  description = "Port paired with local_resolve_ip. Defaults to 443 (Traefik HTTPS) when tls_enabled, else 80."
+  type        = number
+  default     = 0
 }

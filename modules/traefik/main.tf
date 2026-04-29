@@ -7,6 +7,8 @@ terraform {
 }
 
 locals {
+  namespace_name = var.namespace
+
   base_values = {
     providers = {
       kubernetesGateway = {
@@ -43,6 +45,14 @@ locals {
         # HTTPS redirect is only safe when TLS is actually configured on
         # websecure; otherwise we get an infinite 301 loop. Enable the block
         # conditionally via yamlencode-level merge (see http_redirect_override).
+        transport = {
+          respondingTimeouts = {
+            readTimeout       = "${var.entrypoint_timeout_seconds}s"
+            writeTimeout      = "${var.entrypoint_timeout_seconds}s"
+            idleTimeout       = "${var.entrypoint_timeout_seconds}s"
+            readHeaderTimeout = "60s"
+          }
+        }
       }
       websecure = {
         port        = 8443
@@ -51,6 +61,18 @@ locals {
         protocol    = "TCP"
         http = {
           tls = { enabled = var.tls_enabled }
+        }
+        # Long-running streamed uploads (Harbor docker push, esp. multi-GB
+        # workspace images) need the entryPoint to keep the connection
+        # open beyond Traefik's 3-minute default. Without this, the
+        # backend logs `499 Client Closed Request` mid-push.
+        transport = {
+          respondingTimeouts = {
+            readTimeout       = "${var.entrypoint_timeout_seconds}s"
+            writeTimeout      = "${var.entrypoint_timeout_seconds}s"
+            idleTimeout       = "${var.entrypoint_timeout_seconds}s"
+            readHeaderTimeout = "60s"
+          }
         }
       }
     }
@@ -84,7 +106,7 @@ locals {
       certificateRefs = [{
         kind      = "Secret"
         name      = var.gateway_tls_secret_name
-        namespace = kubernetes_namespace.this.metadata[0].name
+        namespace = local.namespace_name
       }]
     }
   }]
@@ -97,10 +119,10 @@ locals {
   #
   # `slug` strips the leading wildcard and replaces dots with dashes so we
   # can build a k8s-safe name (Secret + Certificate + listener name). The
-  # hostname like "*.hermes.dev.openschema.io" becomes:
-  #   slug        = "hermes-dev-openschema-io"
-  #   secret name = "wildcard-hermes-dev-openschema-io-tls"
-  #   listener    = "https-hermes-dev-openschema-io"
+  # hostname like "*.vm.dev.openschema.io" becomes:
+  #   slug        = "vm-dev-openschema-io"
+  #   secret name = "wildcard-vm-dev-openschema-io-tls"
+  #   listener    = "https-vm-dev-openschema-io"
   # Extra listeners are keyed by slug so apply/destroy is stable across
   # list reorderings.
   extra_listeners_raw = [
@@ -131,7 +153,7 @@ locals {
         certificateRefs = [{
           kind      = "Secret"
           name      = l.secret_name
-          namespace = kubernetes_namespace.this.metadata[0].name
+          namespace = local.namespace_name
         }]
       }
     }
@@ -142,7 +164,7 @@ locals {
     kind       = "Gateway"
     metadata = {
       name      = var.gateway_name
-      namespace = kubernetes_namespace.this.metadata[0].name
+      namespace = local.namespace_name
       labels = {
         "app.kubernetes.io/part-of" = "agent-platform"
         "agent-platform/component"  = "gateway"
@@ -167,8 +189,10 @@ locals {
 }
 
 resource "kubernetes_namespace" "this" {
+  count = var.create_namespace ? 1 : 0
+
   metadata {
-    name = var.namespace
+    name = local.namespace_name
     labels = {
       "app.kubernetes.io/part-of" = "agent-platform"
       "agent-platform/component"  = "traefik"
@@ -178,7 +202,7 @@ resource "kubernetes_namespace" "this" {
 
 resource "helm_release" "traefik" {
   name       = var.release_name
-  namespace  = kubernetes_namespace.this.metadata[0].name
+  namespace  = local.namespace_name
   repository = "https://traefik.github.io/charts"
   chart      = "traefik"
   version    = var.chart_version
@@ -190,6 +214,8 @@ resource "helm_release" "traefik" {
     yamlencode(local.base_values),
     var.extra_values,
   ])
+
+  depends_on = [kubernetes_namespace.this]
 }
 
 # Per-hostname wildcard Certificates (cert-manager) for extra listeners.
@@ -204,7 +230,7 @@ resource "kubectl_manifest" "extra_certificate" {
     kind       = "Certificate"
     metadata = {
       name      = each.value.secret_name
-      namespace = kubernetes_namespace.this.metadata[0].name
+      namespace = local.namespace_name
       labels = {
         "app.kubernetes.io/part-of" = "agent-platform"
         "agent-platform/component"  = "gateway"
@@ -219,7 +245,7 @@ resource "kubectl_manifest" "extra_certificate" {
       commonName = each.value.bare_domain
       dnsNames = [
         each.value.bare_domain,
-        each.value.hostname, # e.g. "*.hermes.dev.openschema.io"
+        each.value.hostname, # e.g. "*.vm.dev.openschema.io"
       ]
     }
   })

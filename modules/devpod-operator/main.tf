@@ -25,7 +25,7 @@ resource "kubernetes_namespace" "devpods" {
 # DevPod CRD
 #
 # A DevPod is an ephemeral or long-lived development environment pod
-# that Hermes (or a human) can dispatch. Interactive by default —
+# that an agent (or a human) can dispatch. Interactive by default —
 # leave `command` empty and the pod stays alive until TTL. Set `command`
 # to run a batch task; when it completes, the operator marks the CR
 # Succeeded (and optionally deletes the pod).

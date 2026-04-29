@@ -38,20 +38,15 @@ resource "keycloak_realm" "platform" {
 # =====================================================================
 # Groups (map to app-specific roles via group claims)
 # =====================================================================
+# Data-driven: caller passes the full list via `var.groups`. Default
+# is just `platform-admin` — the only group wired into Forgejo / Harbor /
+# Grafana out of the box.
 
-resource "keycloak_group" "platform_admin" {
-  realm_id = keycloak_realm.platform.id
-  name     = "platform-admin"
-}
+resource "keycloak_group" "this" {
+  for_each = toset(var.groups)
 
-resource "keycloak_group" "developer" {
   realm_id = keycloak_realm.platform.id
-  name     = "developer"
-}
-
-resource "keycloak_group" "viewer" {
-  realm_id = keycloak_realm.platform.id
-  name     = "viewer"
+  name     = each.value
 }
 
 # =====================================================================
@@ -77,12 +72,12 @@ resource "keycloak_openid_group_membership_protocol_mapper" "groups" {
 }
 
 # =====================================================================
-# Client: oauth2-proxy (protects the Hermes UI and anything else)
+# Client: oauth2-proxy (front-door for any UI that delegates auth to it)
 # =====================================================================
 
 resource "keycloak_openid_client" "oauth2_proxy" {
   realm_id  = keycloak_realm.platform.id
-  client_id = "oauth2-proxy"
+  client_id = var.oauth2_proxy_client_id
   name      = "oauth2-proxy"
   enabled   = true
 
@@ -111,43 +106,6 @@ resource "keycloak_openid_client_default_scopes" "oauth2_proxy" {
 }
 
 # =====================================================================
-# Client: argocd
-# =====================================================================
-
-resource "keycloak_openid_client" "argocd" {
-  realm_id  = keycloak_realm.platform.id
-  client_id = "argocd"
-  name      = "Argo CD"
-  enabled   = true
-
-  access_type   = "CONFIDENTIAL"
-  client_secret = var.argocd_client_secret
-
-  standard_flow_enabled        = true
-  direct_access_grants_enabled = false
-
-  root_url = var.argocd_url
-  base_url = var.argocd_url
-  valid_redirect_uris = [
-    "${var.argocd_url}/auth/callback",
-    # Argo CD CLI flow (local callback)
-    "http://localhost:8085/auth/callback",
-  ]
-  web_origins = [var.argocd_url]
-}
-
-resource "keycloak_openid_client_default_scopes" "argocd" {
-  realm_id  = keycloak_realm.platform.id
-  client_id = keycloak_openid_client.argocd.id
-
-  default_scopes = [
-    "profile",
-    "email",
-    keycloak_openid_client_scope.groups.name,
-  ]
-}
-
-# =====================================================================
 # Client: forgejo (optional — only if forgejo_url is set)
 # =====================================================================
 
@@ -155,7 +113,7 @@ resource "keycloak_openid_client" "forgejo" {
   count = var.forgejo_url == "" ? 0 : 1
 
   realm_id  = keycloak_realm.platform.id
-  client_id = "forgejo"
+  client_id = var.forgejo_client_id
   name      = "Forgejo"
   enabled   = true
 
@@ -195,7 +153,7 @@ resource "keycloak_openid_client" "harbor" {
   count = var.harbor_url == "" ? 0 : 1
 
   realm_id  = keycloak_realm.platform.id
-  client_id = "harbor"
+  client_id = var.harbor_client_id
   name      = "Harbor"
   enabled   = true
 
@@ -235,7 +193,7 @@ resource "keycloak_openid_client" "grafana" {
   count = var.grafana_url == "" ? 0 : 1
 
   realm_id  = keycloak_realm.platform.id
-  client_id = "grafana"
+  client_id = var.grafana_client_id
   name      = "Grafana"
   enabled   = true
 
@@ -267,16 +225,104 @@ resource "keycloak_openid_client_default_scopes" "grafana" {
 }
 
 # =====================================================================
-# Client: hermes (single confidential client for THE Hermes user in this
-# cluster). Exchanges user tokens for speckit-worker tokens — linchpin of
-# the on-behalf-of flow. Replaces the earlier hermes-ui + hermes-backend
-# split: Hermes WebUI auth goes through oauth2-proxy + master realm, so
-# the `hermes` client here is purely a service identity.
+# Client: argocd (optional — only if argocd_url is set)
+# Argo CD's OIDC callback path is /auth/callback (and the CLI listens
+# on http://localhost:8085/auth/callback for `argocd login --sso`).
+# =====================================================================
+
+resource "keycloak_openid_client" "argocd" {
+  count = var.argocd_url == "" ? 0 : 1
+
+  realm_id  = keycloak_realm.platform.id
+  client_id = var.argocd_client_id
+  name      = "Argo CD"
+  enabled   = true
+
+  access_type   = "CONFIDENTIAL"
+  client_secret = var.argocd_client_secret
+
+  standard_flow_enabled        = true
+  direct_access_grants_enabled = false
+
+  root_url = var.argocd_url
+  base_url = var.argocd_url
+  valid_redirect_uris = [
+    "${var.argocd_url}/auth/callback",
+    "http://localhost:8085/auth/callback",
+  ]
+  web_origins = [var.argocd_url]
+}
+
+resource "keycloak_openid_client_default_scopes" "argocd" {
+  count = var.argocd_url == "" ? 0 : 1
+
+  realm_id  = keycloak_realm.platform.id
+  client_id = keycloak_openid_client.argocd[0].id
+
+  default_scopes = [
+    "profile",
+    "email",
+    keycloak_openid_client_scope.groups.name,
+  ]
+}
+
+# =====================================================================
+# Client: console (better-auth, optional — only if console_url is set)
+# better-auth's genericOAuth plugin builds the redirect as
+# <baseURL>/api/auth/oauth2/callback/<providerId>; our providerId is
+# `keycloak`. The web app is served from console_url, so the URL below
+# is what arrives at Keycloak as redirect_uri.
+# =====================================================================
+
+resource "keycloak_openid_client" "console" {
+  count = var.console_url == "" ? 0 : 1
+
+  realm_id  = keycloak_realm.platform.id
+  client_id = var.console_client_id
+  name      = "Console"
+  enabled   = true
+
+  access_type   = "CONFIDENTIAL"
+  client_secret = var.console_client_secret
+
+  standard_flow_enabled        = true
+  direct_access_grants_enabled = false
+
+  root_url = var.console_url
+  base_url = var.console_url
+  valid_redirect_uris = [
+    "${var.console_url}/api/auth/oauth2/callback/keycloak",
+    # Local dev convenience — better-auth resolves callbacks against
+    # BETTER_AUTH_URL, which on a developer machine is localhost:3000.
+    "http://localhost:3000/api/auth/oauth2/callback/keycloak",
+  ]
+  web_origins = [var.console_url, "http://localhost:3000"]
+}
+
+resource "keycloak_openid_client_default_scopes" "console" {
+  count = var.console_url == "" ? 0 : 1
+
+  realm_id  = keycloak_realm.platform.id
+  client_id = keycloak_openid_client.console[0].id
+
+  default_scopes = [
+    "profile",
+    "email",
+    keycloak_openid_client_scope.groups.name,
+  ]
+}
+
+# =====================================================================
+# Client: hermes (service identity for the hermes-agent binary running
+# inside each VM / agent-sandbox pod). Exchanges user tokens for
+# devpod-worker tokens — linchpin of the on-behalf-of flow. UI auth
+# (e.g. the upcoming console) goes through oauth2-proxy; the `hermes`
+# client here is purely a service identity.
 # =====================================================================
 
 resource "keycloak_openid_client" "hermes" {
   realm_id  = keycloak_realm.platform.id
-  client_id = "hermes"
+  client_id = var.hermes_client_id
   name      = "Hermes"
   enabled   = true
 
@@ -290,14 +336,14 @@ resource "keycloak_openid_client" "hermes" {
 
 # =====================================================================
 # Client: devpod (confidential; target audience for tokens minted for
-# ephemeral dev pods that Hermes dispatches). Replaces the previous
+# ephemeral dev pods that hermes-agent dispatches). Replaces the previous
 # speckit-worker naming — DevPod is a generic dev environment; speckit is
 # one of many things that can run inside it.
 # =====================================================================
 
 resource "keycloak_openid_client" "devpod" {
   realm_id  = keycloak_realm.platform.id
-  client_id = "devpod"
+  client_id = var.devpod_client_id
   name      = "DevPod"
   enabled   = true
 
@@ -326,31 +372,43 @@ resource "keycloak_openid_client_permissions" "devpod_permissions" {
 }
 
 # =====================================================================
-# Bootstrap admin user (optional)
+# Realm users (data-driven)
 # =====================================================================
+# Caller passes the full set via `var.users`. Group memberships are
+# resolved by name against `var.groups`.
 
-resource "keycloak_user" "bootstrap_admin" {
-  count = var.bootstrap_admin_user == "" ? 0 : 1
+resource "keycloak_user" "this" {
+  # for_each can't take a sensitive value (passwords would leak into the
+  # resource address). Username keys aren't secret; nonsensitive()
+  # strips the sensitivity flag so they can be used as keys, while
+  # password lookups inside the body keep their sensitivity.
+  for_each = nonsensitive(var.users)
 
   realm_id       = keycloak_realm.platform.id
-  username       = var.bootstrap_admin_user
-  enabled        = true
-  email          = var.bootstrap_admin_email
-  email_verified = true
-  first_name     = var.bootstrap_admin_first_name
-  last_name      = var.bootstrap_admin_last_name
+  username       = each.key
+  enabled        = each.value.enabled
+  email          = each.value.email
+  email_verified = each.value.email_verified
+  first_name     = each.value.first_name
+  last_name      = each.value.last_name
 
   initial_password {
-    value     = var.bootstrap_admin_password
-    temporary = var.bootstrap_admin_password_temporary
+    value     = each.value.password
+    temporary = each.value.password_temporary
   }
 }
 
-resource "keycloak_user_groups" "bootstrap_admin_groups" {
-  count = var.bootstrap_admin_user == "" ? 0 : 1
+resource "keycloak_user_groups" "this" {
+  for_each = nonsensitive({
+    for username, spec in var.users : username => spec
+    if length(spec.groups) > 0
+  })
 
   realm_id = keycloak_realm.platform.id
-  user_id  = keycloak_user.bootstrap_admin[0].id
+  user_id  = keycloak_user.this[each.key].id
 
-  group_ids = [keycloak_group.platform_admin.id]
+  # Resolve group names to IDs from the for_each set above. Names not
+  # present in `var.groups` cause a clean apply-time error rather than
+  # silently dropping the membership.
+  group_ids = [for g in each.value.groups : keycloak_group.this[g].id]
 }

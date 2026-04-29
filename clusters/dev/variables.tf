@@ -14,6 +14,24 @@ variable "domain" {
   type        = string
 }
 
+variable "local_gateway_ip" {
+  description = "Optional host-reachable Gateway IP used by Terraform local bootstrap scripts via curl --resolve when platform hostnames are not in DNS or /etc/hosts."
+  type        = string
+  default     = ""
+}
+
+variable "local_gateway_port" {
+  description = "HTTPS port paired with local_gateway_ip for Terraform local bootstrap scripts. Use 9443 when forwarding localhost:9443 to Traefik 443."
+  type        = number
+  default     = 443
+}
+
+variable "containerd_certs_d_path" {
+  description = "Path on each node where containerd reads per-registry hosts.toml overrides. Empty defaults to the upstream `/etc/containerd/certs.d` (kubeadm, Docker Desktop). k3s reads from `/var/lib/rancher/k3s/agent/etc/containerd/certs.d` instead — set that here when running on k3s."
+  type        = string
+  default     = ""
+}
+
 # --- Storage ---
 variable "storage_class" {
   description = "StorageClass for in-cluster stateful workloads (Postgres, Redis, etc.). Empty = cluster default. Docker Desktop: 'hostpath'. kind: 'standard'. k3d: 'local-path'. EKS: '' (uses gp3)."
@@ -59,7 +77,7 @@ variable "traefik_extra_listener_hostnames" {
     can't cover (Gateway API wildcards only match one DNS label). For
     each entry the traefik module creates a cert-manager Certificate
     (signed by the active ClusterIssuer) and a Gateway listener.
-    Example: ["*.hermes.dev.openschema.io"].
+    Example: ["*.vm.dev.openschema.io"].
   EOT
   type        = list(string)
   default     = []
@@ -84,8 +102,8 @@ variable "tls_mode" {
                                   no rate limits, useful for ACME dry-runs)
       - "letsencrypt-prod"     : Let's Encrypt prod (real trusted certs)
 
-    Let's Encrypt modes require letsencrypt_email + dns_provider
-    (cloudflare/route53) + matching provider credentials.
+    Let's Encrypt modes require letsencrypt_email + dns_provider =
+    "cloudflare" + cloudflare_api_token.
   EOT
   type        = string
   default     = "selfsigned"
@@ -106,39 +124,17 @@ variable "letsencrypt_email" {
 }
 
 variable "dns_provider" {
-  description = "DNS-01 provider for wildcard certs: 'cloudflare', 'route53', or 'none' (HTTP-01, no wildcards)."
+  description = "DNS-01 provider for wildcard certs: 'cloudflare' or 'none' (HTTP-01, no wildcards). Local dev (selfsigned) uses 'none'; ACME wildcards require 'cloudflare'."
   type        = string
   default     = "cloudflare"
+  validation {
+    condition     = contains(["cloudflare", "none"], var.dns_provider)
+    error_message = "dns_provider must be one of: cloudflare, none."
+  }
 }
 
 variable "cloudflare_api_token" {
-  description = "Cloudflare API token. Required when dns_provider = 'cloudflare'."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "route53_region" {
-  description = "AWS region for Route53 DNS-01. Required when dns_provider = 'route53'."
-  type        = string
-  default     = ""
-}
-
-variable "route53_hosted_zone_id" {
-  description = "Route53 hosted zone ID."
-  type        = string
-  default     = ""
-}
-
-variable "route53_access_key_id" {
-  description = "AWS access key ID. Prefer IRSA in real deployments."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "route53_secret_access_key" {
-  description = "AWS secret access key."
+  description = "Cloudflare API token with Zone:DNS:Edit permission. Required when dns_provider = 'cloudflare'."
   type        = string
   default     = ""
   sensitive   = true
@@ -149,8 +145,8 @@ variable "route53_secret_access_key" {
 # All derived from var.tls_mode now. See main.tf `locals { tls_* }` block.
 
 # --- Keycloak ---
-variable "keycloak_admin_user" {
-  description = "Bootstrap admin username for Keycloak (also used by the Terraform keycloak provider)."
+variable "keycloak_admin_username" {
+  description = "Bootstrap admin username for Keycloak master realm (also used by the Terraform keycloak provider for realm/user/group resources)."
   type        = string
   default     = "admin"
 }
@@ -169,214 +165,116 @@ variable "realm_enabled" {
   default     = false
 }
 
+variable "keycloak_realm_name" {
+  description = "Name of the Keycloak realm the keycloak-realm module creates (also the realm slug in URLs, e.g. /realms/<name>)."
+  type        = string
+  default     = "platform"
+}
+
+variable "keycloak_realm_display_name" {
+  description = "Human-readable realm name shown in Keycloak's UI."
+  type        = string
+  default     = "Agent Platform"
+}
+
+variable "keycloak_realm_password_policy" {
+  description = "Keycloak password policy string applied to the realm. Empty disables. Examples: `length(8)`, `length(12) and digits(1) and upperCase(1)`. Dev defaults to empty so weak tfvars passwords work."
+  type        = string
+  default     = ""
+}
+
+variable "keycloak_realm_groups" {
+  description = "Groups to create in the platform realm. The default is just `platform-admin` (wired into Forgejo/Harbor/Grafana as the admin group). Add more for downstream RBAC."
+  type        = list(string)
+  default     = ["platform-admin"]
+}
+
+variable "keycloak_realm_users" {
+  description = <<-EOT
+    Realm users keyed by username. Each entry:
+
+      email              = string
+      first_name         = string (optional)
+      last_name          = string (optional)
+      password           = string (sensitive)
+      password_temporary = bool (default true). Force password change
+                           on first login. Set false in dev where the
+                           tfvars password is the actual login password.
+      groups             = list(string). Group names must exist in
+                           `keycloak_realm_groups`. Members of
+                           `platform-admin` auto-promote to admin in
+                           Forgejo / Harbor / Grafana on every OIDC
+                           login.
+
+    The first/primary admin goes here too — there is no separate
+    "bootstrap admin" block. Empty map = no realm users (Keycloak
+    master admin is still usable for setup).
+  EOT
+  type = map(object({
+    enabled            = optional(bool, true)
+    email              = string
+    email_verified     = optional(bool, true)
+    first_name         = optional(string, "")
+    last_name          = optional(string, "")
+    password           = string
+    password_temporary = optional(bool, true)
+    groups             = optional(list(string), [])
+  }))
+  default   = {}
+  sensitive = true
+}
+
 variable "hermes_client_secret" {
-  description = "OIDC client secret for the single `hermes` client in the platform realm (service account + token exchange target). One Hermes user per cluster."
+  description = "OIDC client secret for the `hermes` client in the platform realm (service identity for the hermes-agent binary running inside each VM / agent-sandbox pod)."
   type        = string
   default     = ""
   sensitive   = true
 }
 
-variable "bootstrap_admin_user" {
-  description = "Optional: create this user in the platform realm as a platform-admin. Empty = skip."
-  type        = string
-  default     = ""
-}
-
-variable "bootstrap_admin_email" {
-  description = "Email for the bootstrap realm admin."
-  type        = string
-  default     = ""
-}
-
-variable "bootstrap_admin_password" {
-  description = "Password for the bootstrap realm admin."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "bootstrap_admin_password_temporary" {
-  description = "If true, the bootstrap admin must change password on first login. Set false for dev when tfvars holds the real password."
-  type        = bool
-  default     = true
-}
-
-variable "bootstrap_admin_first_name" {
-  description = "First name for the bootstrap realm admin (optional)."
-  type        = string
-  default     = ""
-}
-
-variable "bootstrap_admin_last_name" {
-  description = "Last name for the bootstrap realm admin (optional)."
-  type        = string
-  default     = ""
-}
-
-# --- Hermes (single pod, agent + webui containers) ---
-
-variable "hermes_enabled" {
-  description = "Deploy the legacy single-shared Hermes pod. DEPRECATED — prefer agent_spawner_enabled for the multi-project hub."
-  type        = bool
-  default     = false
-}
-
-variable "agent_spawner_enabled" {
-  description = "Deploy the Hermes Spawner hub at hermes.<domain>. Requires openfga, realm, oauth2-proxy."
-  type        = bool
-  default     = false
-}
-
-variable "agent_spawner_image" {
-  description = "Spawner container image. Built by Forgejo Actions from services/agent-spawner/Dockerfile and pushed to Harbor at agent-platform/agent-spawner."
-  type        = string
-  default     = "harbor.dev.openschema.io/agent-platform/agent-spawner:latest"
-}
-
-variable "agent_spawner_db_password" {
-  description = "Password for the spawner's Postgres role."
-  type        = string
-  sensitive   = true
-  default     = ""
-}
-
-variable "agent_spawner_max_projects_per_user" {
-  description = "Per-user project cap. Admin users bypass it."
-  type        = number
-  default     = 5
-}
-
-variable "agent_spawner_log_level" {
-  description = "Python logging level."
-  type        = string
-  default     = "INFO"
-}
-
-variable "hermes_agent_image" {
-  description = "Legacy single-pod Hermes Agent image (used only by module \"hermes\", the pre-spawner deployment)."
-  type        = string
-  default     = "nousresearch/hermes-agent:latest"
-}
-
-variable "hermes_webui_image" {
-  description = "Legacy single-pod Hermes WebUI image (used only by module \"hermes\", the pre-spawner deployment)."
-  type        = string
-  default     = "ghcr.io/nesquena/hermes-webui:latest"
-}
-
-variable "agent_spawner_workspace_image" {
-  description = "Basic per-project pod image (code-server + agent + webui + ttyd). Built by Forgejo Actions from services/agent-workspace/Dockerfile and pushed to Harbor at agent-platform/agent-workspace."
-  type        = string
-  default     = "harbor.dev.openschema.io/agent-platform/agent-workspace:latest"
-}
+# Bootstrap admin is now just an entry in `keycloak_realm_users` —
+# no need for a separate variable block.
 
 # --- Forgejo mirror sources -----------------------------------------------
 
-variable "agent_spawner_source_repo" {
-  description = "Upstream repo (e.g. https://github.com/<owner>/agent-spawner) for Forgejo to mirror. Empty = skip mirror creation; the user pushes directly to Forgejo instead."
+variable "forgejo_fork_owner" {
+  description = "Forgejo org or user that owns the forked repos (URL path: <forgejo>/<owner>/<repo>). Empty = admin user. Setting an org name lets the bootstrap Job create the org and centralize repo-level secrets there."
   type        = string
   default     = ""
 }
 
-variable "agent_workspace_source_repo" {
-  description = "Upstream repo for agent-workspace. Same semantics as agent_spawner_source_repo."
+variable "forgejo_fork_repos" {
+  description = <<-EOT
+    Repos to fork into Forgejo on cluster bootstrap (one-time clone via
+    `POST /api/v1/repos/migrate` with `mirror: false` — independent and
+    writable, no upstream sync). Use for repos whose Forgejo Actions
+    workflows you iterate on in-cluster without round-tripping through
+    GitHub. Empty = no forks.
+
+    Map key is the LOCAL repo name in Forgejo (URL path: <forgejo>/<owner>/<key>).
+    Per-entry `auth_username` / `auth_password` override the cluster-wide
+    `github_clone_username` / `github_clone_token` defaults.
+  EOT
+  type = map(object({
+    clone_addr    = string
+    description   = optional(string, "")
+    private       = optional(bool, false)
+    auth_username = optional(string, "")
+    auth_password = optional(string, "")
+  }))
+  default = {}
+}
+
+variable "github_clone_username" {
+  description = "GitHub username used by Forgejo to authenticate against private upstream repos when forking. Per-entry `auth_username` in `forgejo_fork_repos` overrides this. Empty = anonymous (works for public repos)."
   type        = string
   default     = ""
 }
 
-variable "github_mirror_username" {
-  description = "GitHub username used by Forgejo to authenticate against private upstream repos. Empty = anonymous (works for public repos)."
-  type        = string
-  default     = ""
-}
-
-variable "github_mirror_token" {
-  description = "GitHub Personal Access Token (read-only repo scope is enough). Sensitive."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "agent_spawner_workspace_desktop_image" {
-  description = "Desktop variant of the per-project pod image. Built by Forgejo Actions from services/agent-workspace/Dockerfile.desktop and pushed to Harbor at agent-platform/agent-workspace-desktop."
-  type        = string
-  default     = "harbor.dev.openschema.io/agent-platform/agent-workspace-desktop:latest"
-}
-
-variable "agent_spawner_forgejo_admin_token" {
-  description = "Forgejo admin Personal Access Token. Empty = Forgejo automation off (users set up git creds manually inside the pod). Generate via Forgejo UI under the forgejo-admin user → Settings → Applications. Sensitive."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "agent_spawner_workspace_cluster_admin_enabled" {
-  description = "Per-project workspace pods get cluster-admin (so the agent or user can `terraform apply` the cluster from inside a workspace). DANGEROUS — solo-dev convenience only. See spawner/config.py docstring for the full risk list."
-  type        = bool
-  default     = false
-}
-
-
-variable "hermes_image_pull_secret" {
-  description = "Image pull secret name. Empty = none."
-  type        = string
-  default     = ""
-}
-
-variable "hermes_storage_size" {
-  description = "PVC size for the shared Hermes home (config, sessions, skills, memory)."
-  type        = string
-  default     = "10Gi"
-}
-
-variable "agent_workspace_storage_size" {
-  description = "PVC size for the workspace volume mounted into hermes-webui at /workspace."
-  type        = string
-  default     = "10Gi"
-}
-
-variable "hermes_run_as_uid" {
-  description = "UID both Hermes containers run as. Set to a fixed value (default 10000) so they can share the PVC without permission errors."
-  type        = number
-  default     = 10000
-}
-
-variable "hermes_run_as_gid" {
-  description = "GID both Hermes containers run as."
-  type        = number
-  default     = 10000
-}
-
-variable "hermes_default_provider" {
-  description = "Default LLM provider."
-  type        = string
-  default     = "openrouter"
-}
-
-variable "hermes_default_model" {
-  description = "Default LLM model."
-  type        = string
-  default     = "anthropic/claude-sonnet-4.7"
-}
-
-variable "hermes_llm_api_keys" {
-  description = "Map of env-var-name -> LLM provider API key. Mounted into the agent container."
-  type        = map(string)
-  default     = {}
-  sensitive   = true
-}
-
-variable "hermes_webui_password" {
-  description = "Optional password for Hermes WebUI's built-in auth. Usually left empty because oauth2-proxy in front handles auth."
+variable "github_clone_token" {
+  description = "GitHub Personal Access Token (read-only `repo` scope is enough). Sensitive. Per-entry `auth_password` overrides this."
   type        = string
   default     = ""
   sensitive   = true
-}
-
-variable "hermes_cluster_access_enabled" {
-  description = "Grant Hermes RBAC to create DevPod CRs in the platform-devpods namespace. Enable once the devpod-operator CRD exists."
-  type        = bool
-  default     = false
 }
 
 # --- Forgejo (in-cluster git, dev only) ---
@@ -388,9 +286,14 @@ variable "forgejo_enabled" {
 }
 
 variable "forgejo_admin_username" {
-  description = "Forgejo admin username (seeded on first boot)."
+  description = "Forgejo admin username (seeded on first boot). Cannot be 'admin' — Forgejo 15+ reserves it and the configure-gitea init container CrashLoops with `CreateUser: name is reserved`."
   type        = string
   default     = "forgejo-admin"
+
+  validation {
+    condition     = lower(var.forgejo_admin_username) != "admin"
+    error_message = "forgejo_admin_username cannot be 'admin' — Forgejo 15+ reserves that name. Use e.g. 'forgejo-admin'."
+  }
 }
 
 variable "forgejo_admin_email" {
@@ -451,11 +354,23 @@ variable "harbor_enabled" {
   default     = false
 }
 
+variable "harbor_admin_username" {
+  description = "Harbor bootstrap admin username. Harbor itself enforces `admin`; this exists for symmetry with other apps."
+  type        = string
+  default     = "admin"
+}
+
 variable "harbor_admin_password" {
   description = "Harbor bootstrap admin password. Used to login at /harbor/sign-in and by the OIDC-config local-exec."
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "harbor_admin_email" {
+  description = "Email shown for Harbor's built-in admin user. Cosmetic — Harbor exposes it in the UI."
+  type        = string
+  default     = "admin@example.com"
 }
 
 variable "harbor_oidc_client_secret" {
@@ -498,15 +413,15 @@ variable "devpod_operator_run_controller" {
 }
 
 variable "devpod_operator_image" {
-  description = "DevPod operator image. Built separately."
+  description = "DevPod operator image. Empty (default) → derived from var.domain at module-call time. Override for locally-built tags."
   type        = string
-  default     = "registry.dev.openschema.io/library/devpod-operator:latest"
+  default     = ""
 }
 
 variable "devpod_default_image" {
-  description = "Default DevPod base image (used when a DevPod CR leaves .spec.image blank)."
+  description = "Default DevPod base image (used when a DevPod CR leaves .spec.image blank). Empty (default) → derived from var.domain."
   type        = string
-  default     = "registry.dev.openschema.io/library/devpod-base:latest"
+  default     = ""
 }
 
 # --- Forgejo Runner (CI) ---
@@ -514,13 +429,19 @@ variable "devpod_default_image" {
 variable "forgejo_runner_enabled" {
   description = "Deploy a Forgejo Actions runner with a BuildKit sidecar. Requires Forgejo up and reachable."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "forgejo_runner_replicas" {
   description = "Number of runner replicas."
   type        = number
   default     = 1
+}
+
+variable "forgejo_runner_dind_mtu" {
+  description = "MTU for the docker0 bridge inside the runner's DinD container. Set to the pod network's eth0 MTU when smaller than 1500 (k3s/Flannel vxlan: 1450, Wireguard: 1380). 0 = leave docker default; mismatch silently breaks `docker pull` of base images."
+  type        = number
+  default     = 0
 }
 
 variable "forgejo_runner_cache_size" {
@@ -542,12 +463,97 @@ variable "forgejo_runner_registry_password" {
   sensitive   = true
 }
 
-# --- oauth2-proxy (protects Hermes WebUI via Keycloak master realm) ---
+# --- oauth2-proxy (front-door for platform UIs, fronted by Keycloak platform realm) ---
 
 variable "oauth2_proxy_client_id" {
-  description = "Keycloak OIDC client_id for oauth2-proxy. Registered in the Keycloak master realm (manually or via a separate realm seed)."
+  description = "Keycloak OIDC client_id for oauth2-proxy. The realm module registers a client with this id; the oauth2-proxy module authenticates against it. Both sides read from this variable."
   type        = string
   default     = "oauth2-proxy"
+}
+
+variable "forgejo_client_id" {
+  description = "Keycloak OIDC client_id for Forgejo."
+  type        = string
+  default     = "forgejo"
+}
+
+variable "harbor_client_id" {
+  description = "Keycloak OIDC client_id for Harbor."
+  type        = string
+  default     = "harbor"
+}
+
+variable "grafana_client_id" {
+  description = "Keycloak OIDC client_id for Grafana."
+  type        = string
+  default     = "grafana"
+}
+
+# --- agent-sandbox (workspace-pod base images) ---
+
+variable "agent_sandbox_build_enabled" {
+  description = "Build the agent-sandbox basic + desktop images in-cluster (kaniko Jobs cloning from github.com/oscio/agent-sandbox) and push them to Harbor on every fresh apply. The images themselves have no in-cluster consumer until the devpod operator is enabled — disable to skip ~25min of build time when iterating on unrelated infra."
+  type        = bool
+  default     = true
+}
+
+# --- Console (better-auth in services/console) ---
+
+variable "console_enabled" {
+  description = "Register the `console` OIDC client in Keycloak. Required for the better-auth integration in services/console to work."
+  type        = bool
+  default     = false
+}
+
+variable "console_client_id" {
+  description = "Keycloak OIDC client_id for the console (better-auth)."
+  type        = string
+  default     = "console"
+}
+
+variable "console_oidc_client_secret" {
+  description = "OIDC client secret for the console. Plumbed into BETTER_AUTH's KEYCLOAK_CLIENT_SECRET. Sensitive."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "console_db_password" {
+  description = "Password for the `console` Postgres role used by the console module's better-auth tables. Sensitive."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "console_better_auth_secret" {
+  description = "BETTER_AUTH_SECRET for the console (≥32 bytes base64). Generate with `openssl rand -base64 32`. Sensitive."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "console_web_image" {
+  description = "Fully-qualified console-web image (Harbor). The Forgejo workflow at services/console/.forgejo/workflows/build.yml pushes :<sha> and :latest."
+  type        = string
+  default     = "cr.dev.openschema.io/agent-platform/console-web:latest"
+}
+
+variable "console_api_image" {
+  description = "Fully-qualified console-api image. Reused by the auth-migrate Job."
+  type        = string
+  default     = "cr.dev.openschema.io/agent-platform/console-api:latest"
+}
+
+variable "hermes_client_id" {
+  description = "Keycloak OIDC client_id for the hermes-agent confidential client (token-exchange source). hermes-agent is the binary running inside each VM / agent-sandbox pod."
+  type        = string
+  default     = "hermes"
+}
+
+variable "devpod_client_id" {
+  description = "Keycloak OIDC client_id for the DevPod token-exchange target."
+  type        = string
+  default     = "devpod"
 }
 
 variable "oauth2_proxy_client_secret" {
@@ -562,19 +568,6 @@ variable "oauth2_proxy_email_domains" {
   default     = ["*"]
 }
 
-# --- Argo CD ---
-variable "argocd_oidc_client_secret" {
-  description = "OIDC client secret for Argo CD (registered in Keycloak)."
-  type        = string
-  sensitive   = true
-}
-
-variable "argocd_source_repos" {
-  description = "Repositories Argo CD is allowed to sync from. Dev uses in-cluster Forgejo."
-  type        = list(string)
-  default     = ["https://forgejo.dev.example.com/*"]
-}
-
 variable "forgejo_db_password" {
   description = "Password for the 'forgejo' Postgres role."
   type        = string
@@ -587,10 +580,10 @@ variable "harbor_db_password" {
   sensitive   = true
 }
 
-# --- OpenFGA (authorization engine for the Hermes project spawner) ---
+# --- OpenFGA (Zanzibar-style authorization engine) ---
 
 variable "openfga_enabled" {
-  description = "Deploy OpenFGA on the cluster (module.openfga). Bootstraps a store + authz model. Required by the Hermes project spawner."
+  description = "Deploy OpenFGA on the cluster (module.openfga). Bootstraps a store + authz model for downstream consumers (e.g. the upcoming console.<domain>)."
   type        = bool
   default     = true
 }
@@ -602,12 +595,32 @@ variable "openfga_db_password" {
   sensitive   = true
 }
 
-# --- Keel (registry-polling Deployment auto-updater) ---
+# --- Argo CD (replaces Keel as the GitOps + image-update layer) ---
 
-variable "keel_enabled" {
-  description = "Deploy Keel cluster-side. With Keel running and the spawner Deployment carrying `keel.sh/policy=force` annotations, Harbor pushes auto-roll the spawner without manual `kubectl rollout restart`."
+variable "argocd_enabled" {
+  description = "Deploy Argo CD + Image Updater cluster-side. UI at cd.<domain>. Image Updater watches Harbor and patches Argo CD Applications when new tags appear."
   type        = bool
   default     = true
+}
+
+variable "argocd_admin_password" {
+  description = "Plaintext password for the built-in `admin` user. Bcrypt-hashed at apply time. Break-glass; OIDC is the human path."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "argocd_client_id" {
+  description = "OIDC client_id Argo CD presents to Keycloak."
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_oidc_client_secret" {
+  description = "OIDC client secret for Argo CD. Required when argocd_enabled = true."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 # --- Monitoring (Prometheus + Grafana + Loki + Alloy) ---
@@ -618,11 +631,23 @@ variable "monitoring_enabled" {
   default     = false
 }
 
+variable "grafana_admin_username" {
+  description = "Bootstrap Grafana admin username. Wired into the chart's `adminUser`."
+  type        = string
+  default     = "admin"
+}
+
 variable "grafana_admin_password" {
   description = "Bootstrap Grafana admin password (local `admin` user). OIDC users take over once realm is seeded; keep this as break-glass."
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "grafana_admin_email" {
+  description = "Email for the built-in Grafana admin user. Wired into `grafana.ini → security.admin_email`."
+  type        = string
+  default     = "admin@example.com"
 }
 
 variable "grafana_oidc_client_secret" {

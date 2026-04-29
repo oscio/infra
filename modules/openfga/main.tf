@@ -7,18 +7,18 @@ terraform {
 }
 
 # ---------------------------------------------------------------------------
-# OpenFGA — Zanzibar-style authorization engine for the Hermes project
-# spawner.
+# OpenFGA — Zanzibar-style authorization engine for the platform.
 #
 # Deployment shape (dev):
 #   1. Namespace platform-openfga
 #   2. db-create Job (psql) — ensures DATABASE + ROLE exist in the shared
 #      platform-infra Postgres. Idempotent (IF NOT EXISTS).
-#   3. Helm release openfga/openfga with Postgres backend. Chart's
-#      applyMigrations=true runs `openfga migrate` as a post-install hook.
-#   4. bootstrap Job (openfga/cli) — waits for HTTP API, creates the store
+#   3. db-migrate Job — runs `openfga migrate` before the server rollout.
+#   4. Helm release openfga/openfga with Postgres backend.
+#   5. bootstrap Job (openfga/cli) — waits for HTTP API, creates the store
 #      with the authz model, writes {store_id, auth_model_id, api_url}
-#      into a Kubernetes Secret so the spawner can consume them.
+#      into a Kubernetes Secret so downstream consumers (e.g. console) can
+#      pick them up.
 #
 # The bootstrap Job is a one-shot: it skips if the target Secret already
 # exists. To re-bootstrap (e.g. after model changes), delete the Secret
@@ -210,9 +210,66 @@ resource "kubernetes_job" "db_create" {
 }
 
 # ---------------------------------------------------------------------------
+# db-migrate Job: OpenFGA won't report ready until its datastore schema is at
+# the binary's expected revision. Run this explicitly before Helm waits on the
+# Deployment so a fresh database doesn't deadlock the release rollout.
+# ---------------------------------------------------------------------------
+resource "kubernetes_job" "db_migrate" {
+  metadata {
+    name      = "${var.release_name}-db-migrate"
+    namespace = kubernetes_namespace.this.metadata[0].name
+    labels    = local.labels
+  }
+
+  spec {
+    backoff_limit = 6
+    template {
+      metadata {
+        labels = local.labels
+      }
+      spec {
+        restart_policy = "OnFailure"
+        container {
+          name    = "migrate"
+          image   = "${var.image_repository}:${var.image_tag}"
+          command = ["/openfga", "migrate"]
+
+          env {
+            name  = "OPENFGA_DATASTORE_ENGINE"
+            value = "postgres"
+          }
+
+          env {
+            name = "OPENFGA_DATASTORE_URI"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.datastore.metadata[0].name
+                key  = "uri"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  wait_for_completion = true
+  timeouts {
+    create = "5m"
+    update = "5m"
+  }
+
+  depends_on = [
+    kubernetes_job.db_create,
+    kubernetes_secret.datastore,
+  ]
+}
+
+# ---------------------------------------------------------------------------
 # Helm release: openfga/openfga with Postgres backend.
-# The chart's applyMigrations=true runs `openfga migrate` as a post-install
-# Helm hook Job — no separate migrate Job needed here.
+# Migrations are handled by kubernetes_job.db_migrate above. Keeping them out
+# of the chart avoids a fresh-database rollout where the pod waits for
+# migrations while Helm waits for the pod.
 # ---------------------------------------------------------------------------
 locals {
   openfga_values = yamlencode({
@@ -227,7 +284,7 @@ locals {
     datastore = {
       engine            = "postgres"
       uriSecret         = kubernetes_secret.datastore.metadata[0].name
-      applyMigrations   = true
+      applyMigrations   = false
       # waitForMigrations=true adds an init container `wait-for-migration`
       # that calls `kubectl wait job/openfga-migrate` — but the migrate
       # job is a pre-install Helm hook that gets garbage-collected after
@@ -269,7 +326,7 @@ locals {
 
     resources = var.resources
 
-    # No ingress — spawner reaches OpenFGA via cluster DNS.
+    # No ingress — consumers reach OpenFGA via cluster DNS.
     ingress = { enabled = false }
 
     # Telemetry — leave metrics on (scraped only if Prometheus is present).
@@ -295,7 +352,7 @@ resource "helm_release" "openfga" {
   values = [local.openfga_values]
 
   depends_on = [
-    kubernetes_job.db_create,
+    kubernetes_job.db_migrate,
     kubernetes_secret.datastore,
   ]
 }
@@ -303,7 +360,7 @@ resource "helm_release" "openfga" {
 # ---------------------------------------------------------------------------
 # Bootstrap Job: create the store with the authz model via the openfga/cli
 # container, then write store_id + auth_model_id into a Kubernetes Secret
-# so the spawner can pick them up.
+# so downstream consumers can pick them up.
 #
 # Requires a ServiceAccount with permission to get/create Secrets in its
 # own namespace (to check-and-create the target bootstrap Secret).

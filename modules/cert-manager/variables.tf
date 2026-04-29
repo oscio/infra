@@ -31,45 +31,18 @@ variable "letsencrypt_email" {
 }
 
 variable "dns_provider" {
-  description = "DNS-01 provider for wildcards. One of: 'cloudflare', 'route53', 'none'. 'none' falls back to HTTP-01 (no wildcard support)."
+  description = "DNS-01 provider for wildcards. One of: 'cloudflare' (Let's Encrypt + Cloudflare-managed zone) or 'none' (falls back to HTTP-01, no wildcard support — use with selfsigned-ca for in-cluster wildcards)."
   type        = string
   default     = "cloudflare"
   validation {
-    condition     = contains(["cloudflare", "route53", "none"], var.dns_provider)
-    error_message = "dns_provider must be one of: cloudflare, route53, none."
+    condition     = contains(["cloudflare", "none"], var.dns_provider)
+    error_message = "dns_provider must be one of: cloudflare, none."
   }
 }
 
 # Cloudflare DNS-01
 variable "cloudflare_api_token" {
   description = "Cloudflare API token with Zone:DNS:Edit permission on the relevant zone(s). Required when dns_provider = 'cloudflare'."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-# Route53 DNS-01
-variable "route53_region" {
-  description = "AWS region for Route53 DNS-01. Required when dns_provider = 'route53'."
-  type        = string
-  default     = ""
-}
-
-variable "route53_hosted_zone_id" {
-  description = "Route53 hosted zone ID. Required when dns_provider = 'route53'."
-  type        = string
-  default     = ""
-}
-
-variable "route53_access_key_id" {
-  description = "AWS access key ID. Prefer IRSA / IAM roles for service accounts in real deployments."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "route53_secret_access_key" {
-  description = "AWS secret access key."
   type        = string
   default     = ""
   sensitive   = true

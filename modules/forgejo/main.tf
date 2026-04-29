@@ -95,6 +95,14 @@ locals {
       oauth = local.oauth_sources
 
       config = {
+        # `repo.actions` is NOT in Forgejo's default unit set, so even with
+        # `[actions] ENABLED=true` below, the Actions tab stays hidden on
+        # new repos / mirrors / forks. Add it explicitly to all three.
+        repository = {
+          DEFAULT_REPO_UNITS        = "repo.code,repo.releases,repo.issues,repo.pulls,repo.wiki,repo.projects,repo.packages,repo.actions"
+          DEFAULT_MIRROR_REPO_UNITS = "repo.code,repo.releases,repo.issues,repo.wiki,repo.projects,repo.packages,repo.actions"
+          DEFAULT_FORK_REPO_UNITS   = "repo.code,repo.releases,repo.issues,repo.pulls,repo.wiki,repo.projects,repo.packages,repo.actions"
+        }
         server = {
           DOMAIN           = local.hostname
           ROOT_URL         = "${local.public_url}/"
@@ -120,11 +128,13 @@ locals {
           ENABLE_OPENID_SIGNUP = true
         } : {}
         oauth2_client = var.oidc_enabled ? {
-          # Auto-register is disabled because Forgejo rejects reserved
-          # usernames (e.g. "admin") during the auto-create path and 500s
-          # before account-linking can kick in. With this off, first-time
-          # OIDC users hit the link-to-existing-account UI instead.
-          ENABLE_AUTO_REGISTRATION = false
+          # First-time OIDC users get a Forgejo account auto-created from
+          # their Keycloak claims. Caveat: Forgejo 500s if the resulting
+          # username is reserved (e.g. "admin"). Realm-level conventions
+          # (no reserved usernames) keep this safe; if it bites, flip
+          # var.oidc_auto_register=false and users hit the link-to-
+          # existing-account UI on first login instead.
+          ENABLE_AUTO_REGISTRATION = var.oidc_auto_register
           USERNAME                 = "preferred_username"
           UPDATE_AVATAR            = true
           ACCOUNT_LINKING          = "login"
@@ -137,7 +147,7 @@ locals {
           ADMIN_GROUP      = var.oidc_admin_group
         } : {}
         webhook = {
-          ALLOWED_HOST_LIST = "*" # Forgejo -> Hermes/DevPod in-cluster
+          ALLOWED_HOST_LIST = "*" # Forgejo -> sandbox/DevPod in-cluster
         }
         # Cluster-wide Forgejo Actions. New repos (incl. mirrors) get
         # Actions enabled by default — workflow files at

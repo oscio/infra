@@ -17,11 +17,11 @@ variable "admin_password" {
 variable "token_name" {
   description = "Name of the admin Personal Access Token to mint. Must be unique per user; the bootstrap deletes any existing token with this name before recreating, so re-runs always yield a usable token in state."
   type        = string
-  default     = "agent-spawner-bootstrap"
+  default     = "platform-bootstrap"
 }
 
 variable "token_scopes" {
-  description = "PAT scopes. The agent-spawner needs `write:user` (mint per-project tokens via Sudo) + `write:admin` (create users on first project)."
+  description = "PAT scopes. Default grants `write:user` (mint per-project tokens via Sudo) + `write:admin` (create users on first project)."
   type        = list(string)
   default     = ["write:admin", "write:user"]
 }

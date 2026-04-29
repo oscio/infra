@@ -22,7 +22,7 @@ variable "hostname" {
 }
 
 variable "protected_hostname" {
-  description = "Optional: a hostname oauth2-proxy should own as a reverse-proxy for an internal Service (e.g. 'hermes.dev.example.com'). HTTPRoute is created at this hostname pointing at oauth2-proxy; oauth2-proxy proxies to upstream_service on success. Empty = oauth2-proxy is standalone."
+  description = "Optional: a hostname oauth2-proxy should own as a reverse-proxy for an internal Service (e.g. 'console.dev.example.com'). HTTPRoute is created at this hostname pointing at oauth2-proxy; oauth2-proxy proxies to upstream_service on success. Empty = oauth2-proxy is standalone."
   type        = string
   default     = ""
 }
@@ -36,16 +36,16 @@ variable "extra_whitelist_domains" {
     `protected_hostname` — each one must appear in oauth2-proxy's whitelist
     or the login redirect will be rejected.
 
-    Example: oauth2-proxy primarily protects `hermes.dev.example.com` but
-    is also the auth backend for ForwardAuth on `*.hermes.dev.example.com`
-    → pass `["*.hermes.dev.example.com"]`.
+    Example: oauth2-proxy primarily protects `console.dev.example.com` but
+    is also the auth backend for ForwardAuth on `*.vm.dev.example.com`
+    → pass `["*.vm.dev.example.com"]`.
   EOT
   type        = list(string)
   default     = []
 }
 
 variable "upstream_service_name" {
-  description = "Name of the Service oauth2-proxy proxies to after successful auth (e.g. 'hermes-webui'). Required when protected_hostname is set."
+  description = "Name of the Service oauth2-proxy proxies to after successful auth (e.g. 'console'). Required when protected_hostname is set."
   type        = string
   default     = ""
 }
@@ -162,4 +162,10 @@ variable "ca_source_secret_namespace" {
   description = "Namespace of ca_source_secret_name. Defaults to 'cert-manager'."
   type        = string
   default     = "cert-manager"
+}
+
+variable "forward_auth_enabled" {
+  description = "Create a Traefik `Middleware` (forwardAuth) that sub-requests `/oauth2/auth`. Other HTTPRoutes attach it via an ExtensionRef filter to gate traffic on a Keycloak session. Cookie-domain must cover both oauth2-proxy and the protected hostnames."
+  type        = bool
+  default     = false
 }

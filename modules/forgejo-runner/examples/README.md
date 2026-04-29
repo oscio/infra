@@ -3,8 +3,8 @@
 These example workflows demonstrate the **manual-push → build → deploy**
 loop that runs end-to-end inside the dev cluster without any agent
 involvement. Once you can `git push` and see a new image in Harbor +
-Argo CD deploying it, the platform is ready for Hermes/DevPod to drive
-the loop on its behalf.
+Argo CD deploying it, the platform is ready for the sandbox/DevPod to
+drive the loop on its behalf.
 
 ## Assumptions
 
@@ -158,5 +158,5 @@ spec:
    image.
 
 Once all six steps tick without manual intervention, the CI/CD layer is
-ready. At that point Hermes+DevPod just needs to do step 1 (push a
+ready. At that point the sandbox+DevPod just needs to do step 1 (push a
 commit) for an agent-driven flow.

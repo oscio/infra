@@ -9,7 +9,7 @@ terraform {
 #
 # Why:
 #   All platform services that talk to Keycloak over https:// (oauth2-proxy,
-#   argo-cd dex, forgejo oauth client, harbor, hermes, etc.) need to trust
+#   argo-cd dex, forgejo oauth client, harbor, etc.) need to trust
 #   the selfsigned-ca that signed the wildcard cert. The CA cert lives in a
 #   Secret in the cert-manager namespace; this module copies it as a
 #   ConfigMap into every consumer namespace so deployments there can mount

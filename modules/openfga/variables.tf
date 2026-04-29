@@ -88,7 +88,7 @@ variable "openfga_db_password" {
 variable "store_name" {
   description = "OpenFGA store name to create on bootstrap."
   type        = string
-  default     = "hermes-projects"
+  default     = "platform-projects"
 }
 
 variable "authz_model_fga" {
@@ -97,6 +97,10 @@ variable "authz_model_fga" {
     on first bootstrap. If you change this after initial apply, rerun the
     bootstrap Job manually (delete Job + Secret) — the module only writes
     the model when the bootstrap Secret is missing.
+
+    The default is a generic placeholder (user + project only). Real
+    deployments should override per-cluster — clusters/dev passes the
+    console-owned model from services/console/openfga/model.fga.
   EOT
   type        = string
   default     = <<-FGA
@@ -123,6 +127,9 @@ variable "authz_model_json" {
     This is functionally equivalent to `authz_model_fga` — we ship both so
     that the bootstrap Job (which uses plain curl, not the fga CLI) can POST
     the model directly.
+
+    Like `authz_model_fga`, the default is a generic placeholder. Override
+    per-cluster — clusters/dev passes services/console/openfga/model.json.
   EOT
   type        = string
   default     = <<-JSON

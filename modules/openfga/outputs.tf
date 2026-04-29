@@ -34,7 +34,7 @@ output "bootstrap_secret_namespace" {
 }
 
 output "store_id" {
-  description = "OpenFGA store ID (read from bootstrap Secret). Consumed by the spawner."
+  description = "OpenFGA store ID (read from bootstrap Secret). Consumed by downstream platform services."
   # The ULID is not a secret — de-sensitise so cluster-level outputs
   # can expose it without `sensitive = true` on every consumer.
   value = nonsensitive(try(data.kubernetes_secret_v1.bootstrap.data["store_id"], ""))

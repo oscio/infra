@@ -163,6 +163,12 @@ variable "oidc_admin_group" {
   default     = "platform-admin"
 }
 
+variable "oidc_auto_register" {
+  description = "Auto-create a Forgejo account on first OIDC login (using preferred_username from the ID token). Off forces users into the link-to-existing-account UI. Watch out for reserved usernames (`admin`, etc.) — Forgejo 500s before linking can kick in."
+  type        = bool
+  default     = true
+}
+
 # --- App tuning ---
 
 variable "disable_registration" {

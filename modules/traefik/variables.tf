@@ -4,6 +4,12 @@ variable "namespace" {
   default     = "platform-traefik"
 }
 
+variable "create_namespace" {
+  description = "Whether this module should create the Traefik namespace. Disable when the root module pre-creates it for cross-module dependencies."
+  type        = bool
+  default     = true
+}
+
 variable "release_name" {
   description = "Helm release name."
   type        = string
@@ -58,6 +64,12 @@ variable "service_type" {
   default     = "LoadBalancer"
 }
 
+variable "entrypoint_timeout_seconds" {
+  description = "EntryPoint read/write/idle timeout. Applied to both `web` and `websecure`. Defaults to 30 minutes — long enough for a multi-GB Harbor docker push to complete on a slow link without hitting Traefik's default 180s idle timeout (manifested as HTTP 499 Client Closed Request on the backend)."
+  type        = number
+  default     = 1800
+}
+
 variable "extra_values" {
   description = "Extra Helm values merged on top (YAML string)."
   type        = string
@@ -73,7 +85,7 @@ variable "tls_enabled" {
 variable "extra_listener_hostnames" {
   description = <<-EOT
     Additional HTTPS listener hostnames (typically deep wildcards like
-    '*.hermes.dev.openschema.io') to attach to the shared Gateway. For each
+    '*.vm.dev.openschema.io') to attach to the shared Gateway. For each
     entry, the module creates:
       - a cert-manager Certificate issued by `cert_manager_issuer`, producing
         a TLS Secret in the Gateway namespace; and
@@ -91,4 +103,3 @@ variable "cert_manager_issuer" {
   type        = string
   default     = ""
 }
-

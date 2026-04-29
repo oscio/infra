@@ -11,7 +11,6 @@ output "client_ids" {
   value = merge(
     {
       "oauth2-proxy" = keycloak_openid_client.oauth2_proxy.id
-      "argocd"       = keycloak_openid_client.argocd.id
       "hermes"       = keycloak_openid_client.hermes.id
       "devpod"       = keycloak_openid_client.devpod.id
     },
@@ -21,14 +20,13 @@ output "client_ids" {
     var.harbor_url == "" ? {} : {
       "harbor" = keycloak_openid_client.harbor[0].id
     },
+    var.argocd_url == "" ? {} : {
+      "argocd" = keycloak_openid_client.argocd[0].id
+    },
   )
 }
 
 output "group_ids" {
-  description = "Map of group name -> Keycloak UUID."
-  value = {
-    "platform-admin" = keycloak_group.platform_admin.id
-    "developer"      = keycloak_group.developer.id
-    "viewer"         = keycloak_group.viewer.id
-  }
+  description = "Map of group name -> Keycloak UUID. Reflects whatever is in `var.groups`."
+  value       = { for name, g in keycloak_group.this : name => g.id }
 }

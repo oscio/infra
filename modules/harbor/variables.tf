@@ -78,10 +78,22 @@ variable "jobservice_storage_size" {
 
 # --- Admin (bootstrap) ---
 
+variable "admin_username" {
+  description = "Harbor bootstrap admin username. Harbor enforces `admin` for the built-in admin user (the helm chart and API both reject other values), so this exists mostly for symmetry across the app's admin variables. Override at your own risk."
+  type        = string
+  default     = "admin"
+}
+
 variable "admin_password" {
   description = "Harbor bootstrap admin password. Used for both UI login and initial OIDC config API calls."
   type        = string
   sensitive   = true
+}
+
+variable "admin_email" {
+  description = "Email address attached to Harbor's built-in admin user. Shown in UI; unused by the platform."
+  type        = string
+  default     = "admin@example.com"
 }
 
 # --- OIDC (Keycloak) ---
@@ -168,4 +180,30 @@ variable "local_exec_insecure_tls" {
   description = "If true, the Terraform host's curl invocations (used for Harbor OIDC config push) skip TLS verification. Needed when Harbor is served by a self-signed CA that the host doesn't trust."
   type        = bool
   default     = false
+}
+
+# --- In-cluster registry side-channel -----------------------------------------
+
+variable "internal_service_enabled" {
+  description = "Create an additional NodePort Service (`<release>-internal`) that points at the same harbor-nginx pods. In-cluster image pulls target this URL instead of the public hostname, so kubelet does not need node-side DNS for the external URL nor a hosts.toml mirror bypass. Combine with `project_public = true` on harbor-bootstrap (anonymous pull) to avoid the Bearer-token challenge that still references the external URL."
+  type        = bool
+  default     = false
+}
+
+variable "internal_service_cluster_ip" {
+  description = "Pinned ClusterIP for the internal Service. Image references can hard-code this IP and remain stable across helm upgrades (the regular Service rotates IPs on recreate). Empty = let K8s pick. Must lie within the cluster's Service CIDR; default works for kubeadm/Docker Desktop (10.96.0.0/12) but not EKS (10.100.0.0/16)."
+  type        = string
+  default     = ""
+}
+
+variable "internal_service_port" {
+  description = "ClusterIP port for the internal Service. Used by in-cluster consumers as the image-ref port."
+  type        = number
+  default     = 30500
+}
+
+variable "internal_service_node_port" {
+  description = "NodePort for the internal Service. Same value as `internal_service_port` lets one image ref work via both ClusterIP and NodeIP without a search-domain trick."
+  type        = number
+  default     = 30500
 }

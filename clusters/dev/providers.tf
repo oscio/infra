@@ -7,6 +7,10 @@ terraform {
     kubectl    = { source = "alekc/kubectl", version = "~> 2.1" }
     random     = { source = "hashicorp/random", version = "~> 3.6" }
     keycloak   = { source = "keycloak/keycloak", version = "~> 5.0" }
+    # Used by harbor-bootstrap and forgejo-bootstrap modules to call the
+    # Harbor / Forgejo REST APIs at plan time.
+    external = { source = "hashicorp/external", version = "~> 2.3" }
+    null     = { source = "hashicorp/null", version = "~> 3.2" }
   }
 }
 
@@ -32,7 +36,7 @@ provider "kubectl" {
 # using the bootstrap admin user. Set via TF_VAR_* env vars in CI.
 provider "keycloak" {
   client_id     = "admin-cli"
-  username      = var.keycloak_admin_user
+  username      = var.keycloak_admin_username
   password      = var.keycloak_admin_password
   url           = "https://${local.keycloak_hostname}"
   realm         = "master"

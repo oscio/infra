@@ -10,32 +10,7 @@ locals {
   create_issuers    = var.letsencrypt_email != ""
   create_selfsigned = var.selfsigned_enabled
   use_cloudflare    = var.dns_provider == "cloudflare"
-  use_route53       = var.dns_provider == "route53"
   use_http01        = var.dns_provider == "none"
-
-  # DNS-01 solver block (Route53). Two variants: with explicit access key, or
-  # IRSA/pod-identity (no keys). Encoded as YAML to sidestep Terraform's
-  # conditional-type-uniformity rule.
-  route53_solver_yaml = var.route53_access_key_id != "" ? yamlencode({
-    dns01 = {
-      route53 = {
-        region       = var.route53_region
-        hostedZoneID = var.route53_hosted_zone_id
-        accessKeyID  = var.route53_access_key_id
-        secretAccessKeySecretRef = {
-          name = "cert-manager-route53-secret"
-          key  = "secret-access-key"
-        }
-      }
-    }
-    }) : yamlencode({
-    dns01 = {
-      route53 = {
-        region       = var.route53_region
-        hostedZoneID = var.route53_hosted_zone_id
-      }
-    }
-  })
 
   cloudflare_solver_yaml = yamlencode({
     dns01 = {
@@ -56,9 +31,7 @@ locals {
     }
   })
 
-  solver_yaml = local.use_cloudflare ? local.cloudflare_solver_yaml : (
-    local.use_route53 ? local.route53_solver_yaml : local.http01_solver_yaml
-  )
+  solver_yaml = local.use_cloudflare ? local.cloudflare_solver_yaml : local.http01_solver_yaml
 
   solver_parsed = yamldecode(local.solver_yaml)
 
@@ -192,25 +165,6 @@ resource "kubernetes_secret" "cloudflare_token" {
   }
 }
 
-resource "kubernetes_secret" "route53_secret" {
-  count = local.create_issuers && local.use_route53 && var.route53_access_key_id != "" ? 1 : 0
-
-  metadata {
-    name      = "cert-manager-route53-secret"
-    namespace = kubernetes_namespace.this.metadata[0].name
-    labels = {
-      "app.kubernetes.io/part-of" = "agent-platform"
-    }
-  }
-
-  data = {
-    "secret-access-key" = var.route53_secret_access_key
-  }
-
-  type       = "Opaque"
-  depends_on = [helm_release.cert_manager]
-}
-
 # --- ClusterIssuers (staging + prod) ---
 
 resource "kubectl_manifest" "issuer_staging" {
@@ -221,7 +175,6 @@ resource "kubectl_manifest" "issuer_staging" {
   depends_on = [
     helm_release.cert_manager,
     kubernetes_secret.cloudflare_token,
-    kubernetes_secret.route53_secret,
   ]
 }
 
@@ -233,7 +186,6 @@ resource "kubectl_manifest" "issuer_prod" {
   depends_on = [
     helm_release.cert_manager,
     kubernetes_secret.cloudflare_token,
-    kubernetes_secret.route53_secret,
   ]
 }
 
@@ -349,7 +301,7 @@ resource "kubectl_manifest" "wildcard_certificate" {
       # DNS-01 is required for ACME wildcard, but the selfsigned-ca issuer
       # can sign wildcards without any DNS challenge.
       condition     = !local.use_http01 || var.wildcard_certificate_issuer == "selfsigned-ca"
-      error_message = "Wildcard certificates from an ACME issuer require DNS-01. Set dns_provider to 'cloudflare'/'route53', or use wildcard_certificate_issuer = 'selfsigned-ca'."
+      error_message = "Wildcard certificates from an ACME issuer require DNS-01. Set dns_provider to 'cloudflare', or use wildcard_certificate_issuer = 'selfsigned-ca'."
     }
   }
 }

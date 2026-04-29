@@ -46,6 +46,9 @@ locals {
           root_url            = "https://${var.hostname}/"
           serve_from_sub_path = false
         }
+        security = {
+          admin_email = var.grafana_admin_email
+        }
         auth = {
           disable_login_form = var.oidc_auto_login
           oauth_auto_login   = var.oidc_auto_login
@@ -73,9 +76,14 @@ locals {
     }
     }) : yamlencode({
     grafana = {
+      adminUser     = var.grafana_admin_username
+      adminPassword = var.grafana_admin_password
       "grafana.ini" = {
         server = {
           root_url = "https://${var.hostname}/"
+        }
+        security = {
+          admin_email = var.grafana_admin_email
         }
       }
     }
@@ -137,7 +145,10 @@ locals {
     }
 
     grafana = {
+      adminUser     = var.grafana_admin_username
       adminPassword = var.grafana_admin_password
+      # adminEmail isn't a top-level chart value — it lives under
+      # grafana.ini → users.default_email. Wired below in `grafana.ini`.
 
       persistence = {
         enabled          = true

@@ -61,6 +61,18 @@ variable "hostname" {
   type        = string
 }
 
+variable "grafana_admin_username" {
+  description = "Bootstrap Grafana admin username (chart's `adminUser`). The chart wires it into the admin Secret and grafana.ini."
+  type        = string
+  default     = "admin"
+}
+
+variable "grafana_admin_email" {
+  description = "Email for the built-in Grafana admin user. Shown in the UI; not used by the platform."
+  type        = string
+  default     = "admin@example.com"
+}
+
 variable "grafana_admin_password" {
   description = <<-EOT
     Bootstrap Grafana admin password. Used for the built-in `admin` user.
@@ -123,9 +135,9 @@ variable "oidc_admin_groups" {
 }
 
 variable "oidc_editor_groups" {
-  description = "Keycloak group names whose members are mapped to Grafana's Editor role."
+  description = "Keycloak group names whose members are mapped to Grafana's Editor role. Empty = no Editor mapping."
   type        = list(string)
-  default     = ["developer"]
+  default     = []
 }
 
 variable "oidc_auto_login" {

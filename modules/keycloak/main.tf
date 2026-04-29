@@ -3,6 +3,7 @@ terraform {
     kubernetes = { source = "hashicorp/kubernetes", version = "~> 2.31" }
     helm       = { source = "hashicorp/helm", version = "~> 2.14" }
     kubectl    = { source = "alekc/kubectl", version = "~> 2.1" }
+    null       = { source = "hashicorp/null", version = "~> 3.2" }
   }
 }
 
@@ -59,7 +60,7 @@ resource "kubernetes_secret" "admin" {
   }
   type = "Opaque"
   data = {
-    "username" = var.admin_user
+    "username" = var.admin_username
     "password" = var.admin_password
   }
 }
@@ -236,4 +237,49 @@ resource "kubectl_manifest" "httproute" {
       error_message = "gateway_parent_ref is required when gateway_api_enabled = true."
     }
   }
+}
+
+# Helm `wait = true` only confirms pod readiness — it doesn't confirm that
+# Traefik has reconciled the HTTPRoute or that Keycloak's master realm is
+# actually serving OIDC discovery. The keycloak/keycloak provider used by
+# module.keycloak-realm hits the public URL at apply time, so without this
+# gate the first apply fails with `404 Not Found` from Traefik until the
+# route lands. The previous workaround was "wait 30s and re-run" — this
+# folds that into a single apply.
+resource "null_resource" "wait_public" {
+  count = var.wait_for_public_url ? 1 : 0
+
+  triggers = {
+    helm_revision = helm_release.keycloak.metadata[0].revision
+    httproute_id  = join("", kubectl_manifest.httproute[*].id)
+    hostname      = var.hostname
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -eo pipefail
+      SCHEME="${var.tls_enabled ? "https" : "http"}"
+      PORT="${var.local_resolve_port > 0 ? var.local_resolve_port : (var.tls_enabled ? 443 : 80)}"
+      URL="$${SCHEME}://${var.hostname}/realms/master/.well-known/openid-configuration"
+      RESOLVE_ARGS=()
+      if [ -n "${var.local_resolve_ip}" ]; then
+        RESOLVE_ARGS=(--resolve "${var.hostname}:$${PORT}:${var.local_resolve_ip}")
+        echo "Waiting for Keycloak at $${URL} (resolve ${var.hostname} -> ${var.local_resolve_ip})..."
+      else
+        echo "Waiting for Keycloak at $${URL}..."
+      fi
+      for i in $(seq 1 90); do
+        STATUS=$(curl -ksS "$${RESOLVE_ARGS[@]}" -o /dev/null -w '%%{http_code}' --connect-timeout 3 --max-time 10 "$${URL}" || true)
+        if [ "$${STATUS}" = "200" ]; then
+          echo "Keycloak ready (HTTP $${STATUS}) after $${i} attempt(s)."
+          exit 0
+        fi
+        sleep 2
+      done
+      echo "Keycloak did not become ready at $${URL} within ~3min" >&2
+      exit 1
+    EOT
+  }
+
+  depends_on = [helm_release.keycloak, kubectl_manifest.httproute]
 }

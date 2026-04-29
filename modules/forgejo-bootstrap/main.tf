@@ -5,7 +5,7 @@ terraform {
 }
 
 # =====================================================================
-# Forgejo bootstrap — mint admin PAT for the agent-spawner
+# Forgejo bootstrap — mint a Forgejo admin PAT for downstream consumers
 # =====================================================================
 #
 # `data "external"` runs on every plan/apply and:
@@ -16,7 +16,7 @@ terraform {
 #   3. Returns {token: <sha1>} into terraform state.
 #
 # Side-effect of this design: the admin token rotates on every apply.
-# Acceptable for solo dev (terraform updates the spawner Deployment env
+# Acceptable for solo dev (terraform updates dependent Deployment envs
 # in the same apply, so cached values aren't a concern). Production
 # should use a longer-lived token stored in a real secret manager.
 #

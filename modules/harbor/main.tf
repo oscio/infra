@@ -176,6 +176,62 @@ resource "kubectl_manifest" "httproute" {
 }
 
 # =====================================================================
+# In-cluster registry endpoint (NodePort, plain HTTP)
+# =====================================================================
+#
+# Reasons we can't reuse Harbor's external URL for in-cluster pulls:
+#   1. The chart pins the registry's external URL to `https://<host>`,
+#      which the Bearer-token challenge embeds in WWW-Authenticate. To
+#      reach that URL kubelet needs node-side DNS for the public hostname
+#      → /etc/hosts hacks per node.
+#   2. Self-signed dev certs need skip_verify in containerd hosts.toml.
+#   3. The chart's own Service has no NodePort, so even bypassing DNS
+#      we couldn't reach Harbor without going through Traefik.
+#
+# This Service:
+#   - Adds a side-channel that points at the same harbor-nginx pods.
+#   - Pinned ClusterIP so image refs (e.g.
+#     `<cluster_ip>:<node_port>/agent-platform/foo:latest`) are stable
+#     across helm upgrades without a data source lookup.
+#   - NodePort makes it trivially reachable from any node.
+#
+# Pair with `project_public = true` on the harbor-bootstrap module so
+# anonymous pull works — otherwise Harbor still issues a Bearer
+# challenge pointing back at the *external* URL and we're back to
+# square one.
+
+resource "kubernetes_service_v1" "internal" {
+  count = var.internal_service_enabled ? 1 : 0
+
+  metadata {
+    name      = "${var.release_name}-internal"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    type       = "NodePort"
+    cluster_ip = var.internal_service_cluster_ip == "" ? null : var.internal_service_cluster_ip
+
+    selector = {
+      "app.kubernetes.io/name"      = "harbor"
+      "app.kubernetes.io/component" = "nginx"
+      "release"                     = var.release_name
+    }
+
+    port {
+      name        = "http-registry"
+      port        = var.internal_service_port
+      target_port = 8080
+      node_port   = var.internal_service_node_port
+      protocol    = "TCP"
+    }
+  }
+
+  depends_on = [helm_release.harbor]
+}
+
+# =====================================================================
 # OIDC configuration (post-install, via Harbor API)
 #
 # Why this pattern: Harbor stores auth-mode + OIDC config in its Postgres

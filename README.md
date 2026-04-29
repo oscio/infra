@@ -1,8 +1,9 @@
 # infra/
 
 Terraform code for the **Agent Platform** dev cluster — running Traefik
-(Gateway API), Keycloak, cert-manager, Argo CD, oauth2-proxy, Hermes,
-Forgejo, Harbor, and a Forgejo Actions runner.
+(Gateway API), Keycloak, cert-manager, Argo CD, oauth2-proxy, Forgejo,
+Harbor, and a Forgejo Actions runner. The console.<domain> module
+(VM / agent-sandbox orchestrator) is the next thing to land here.
 
 See `../agent-platform/DESIGN.md` for the full architecture and
 `../agent-platform/PHASE-A-VERIFICATION.md` for end-to-end testing.
@@ -25,9 +26,8 @@ infra/
 │   ├── cert-manager/          # Let's Encrypt DNS-01 (Cloudflare/Route53)
 │   ├── keycloak/              # codecentric/keycloakx (quay.io/keycloak/keycloak)
 │   ├── keycloak-realm/        # platform realm + OIDC clients
-│   ├── oauth2-proxy/          # OIDC proxy (fronts Hermes WebUI)
+│   ├── oauth2-proxy/          # OIDC proxy (front-door for platform UIs)
 │   ├── argocd/                # Argo CD (GitOps)
-│   ├── hermes/                # hermes-agent + hermes-webui (2 containers, 1 pod)
 │   ├── forgejo/               # Forgejo (self-hosted git)
 │   ├── forgejo-runner/        # Forgejo Actions runner + BuildKit
 │   ├── harbor/                # Harbor (container registry)
@@ -51,7 +51,8 @@ Hostname convention (all under `<domain>`):
 | Keycloak     | `auth.<domain>`     |
 | oauth2-proxy | `oauth.<domain>`    |
 | Argo CD      | `cd.<domain>`       |
-| Hermes WebUI | `hermes.<domain>`   |
+| Console      | `console.<domain>`  |
+| VMs          | `vm.<domain>`       |
 | Forgejo      | `git.<domain>`      |
 | Harbor       | `registry.<domain>` |
 | Grafana      | `grafana.<domain>`  |
@@ -71,13 +72,12 @@ time, bring-up is split into phases via `*_enabled` flags:
 | ----- | -------------------------------- | ----------------------------------------------- |
 | 1     | (defaults)                       | Traefik, cert-manager, Keycloak, Argo CD        |
 | 2     | `realm_enabled = true`           | Platform realm + all OIDC clients               |
-| 3     | `hermes_enabled = true`          | Hermes pod + oauth2-proxy fronting it           |
-| 4     | `forgejo_enabled = true`         | Forgejo + OIDC                                  |
-| 5     | `harbor_enabled = true`          | Harbor + OIDC (configured via API post-install) |
-| 5.5   | (manual)                         | Create Harbor robot account for CI              |
-| 6     | `forgejo_runner_enabled = true`  | Runner + BuildKit sidecar                       |
-| 7     | `devpod_operator_enabled = true` | DevPod CRD (+ operator when image ready)        |
-| 8     | `monitoring_enabled = true`      | Prometheus + Grafana + Loki + Alloy             |
+| 3     | `forgejo_enabled = true`         | Forgejo + OIDC                                  |
+| 4     | `harbor_enabled = true`          | Harbor + OIDC (configured via API post-install) |
+| 4.5   | (manual)                         | Create Harbor robot account for CI              |
+| 5     | `forgejo_runner_enabled = true`  | Runner + BuildKit sidecar                       |
+| 6     | `devpod_operator_enabled = true` | DevPod CRD (+ operator when image ready)        |
+| 7     | `monitoring_enabled = true`      | Prometheus + Grafana + Loki + Alloy             |
 
 See `agent-platform/PHASE-A-VERIFICATION.md` for step-by-step testing
 after each phase.

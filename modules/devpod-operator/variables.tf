@@ -23,9 +23,8 @@ variable "install_operator" {
 }
 
 variable "operator_image" {
-  description = "Operator container image. Build separately and push to Harbor."
+  description = "Operator container image. Caller-supplied (no default) so the module stays domain-agnostic — clusters compute the value from their own var.domain."
   type        = string
-  default     = "registry.dev.openschema.io/library/devpod-operator:latest"
 }
 
 variable "operator_replicas" {
@@ -35,9 +34,8 @@ variable "operator_replicas" {
 }
 
 variable "default_devpod_image" {
-  description = "Default DevPod base image used when a DevPod CR doesn't specify one."
+  description = "Default DevPod base image used when a DevPod CR doesn't specify one. Caller-supplied (no default)."
   type        = string
-  default     = "registry.dev.openschema.io/library/devpod-base:latest"
 }
 
 variable "default_ttl" {

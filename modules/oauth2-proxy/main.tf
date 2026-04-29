@@ -62,12 +62,12 @@ locals {
       "--pass-authorization-header=true",
       # Inject X-Forwarded-User / X-Forwarded-Email into upstream requests.
       # Default flipped to false in oauth2-proxy 7.x — re-enable explicitly
-      # so upstream services (e.g. the spawner) can read the user identity.
+      # so upstream services can read the user identity.
       "--pass-user-headers=true",
       "--set-authorization-header=true",
       # Also set X-Auth-Request-User / -Email / -Groups on upstream requests
-      # (not just on the /oauth2/auth subrequest). This is what the spawner
-      # reads (auth_header_user="X-Auth-Request-User" in its config).
+      # (not just on the /oauth2/auth subrequest). Upstream apps that read
+      # these (e.g. via auth_header_user="X-Auth-Request-User") rely on it.
       "--set-xauthrequest=true",
       "--skip-provider-button=true",
       "--cookie-secure=true",
@@ -82,7 +82,7 @@ locals {
       # Cookie domain sharing
       var.cookie_domain == "" ? "" : "--cookie-domain=${var.cookie_domain}",
       # Accept requests for the primary protected hostname + any extras
-      # (e.g. a spawner hub + wildcard for per-project subdomains).
+      # (e.g. a console hub + wildcard for per-VM subdomains).
       local.has_upstream ? "--whitelist-domain=${var.protected_hostname}" : "",
       local.has_upstream ? "--redirect-url=https://${var.protected_hostname}/oauth2/callback" : "",
       ]),
@@ -264,6 +264,90 @@ resource "kubectl_manifest" "httproute_protected" {
           port = 80
         }]
       }]
+    }
+  })
+
+  depends_on = [helm_release.oauth2_proxy]
+}
+
+# =====================================================================
+# Traefik ForwardAuth Middleware — protect arbitrary HTTPRoutes
+# =====================================================================
+# Other HTTPRoutes can attach this Middleware via an ExtensionRef
+# filter; Traefik then sub-requests `/oauth2/auth` on every request.
+# 202 → forward to upstream. 401 → return to client (browser shows
+# the response body; the user has to log in at oauth.<domain> first
+# to drop a session cookie on the parent cookie domain, then retry).
+#
+# Trust X-Forwarded-* so /oauth2/auth knows which host the user
+# originally requested. authResponseHeaders propagate identity to
+# the protected upstream.
+
+resource "kubectl_manifest" "forward_auth_middleware" {
+  count = var.forward_auth_enabled ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "traefik.io/v1alpha1"
+    kind       = "Middleware"
+    metadata = {
+      name      = "${var.release_name}-forward-auth"
+      namespace = kubernetes_namespace.this.metadata[0].name
+      labels = {
+        "app.kubernetes.io/part-of" = "agent-platform"
+        "agent-platform/component"  = "oauth2-proxy"
+      }
+    }
+    spec = {
+      forwardAuth = {
+        address            = "http://${helm_release.oauth2_proxy.name}.${kubernetes_namespace.this.metadata[0].name}.svc.cluster.local/oauth2/auth"
+        trustForwardHeader = true
+        authResponseHeaders = [
+          "X-Auth-Request-User",
+          "X-Auth-Request-Email",
+          "X-Auth-Request-Groups",
+          "Authorization",
+        ]
+      }
+    }
+  })
+
+  depends_on = [helm_release.oauth2_proxy]
+}
+
+# =====================================================================
+# Errors middleware — auto-redirect on 401 → /oauth2/start
+# =====================================================================
+# Without this, Traefik returns 401 verbatim on a missed forwardAuth
+# (blank "Unauthorized" page). With it, 401 responses are replaced
+# by whatever oauth2-proxy returns at /oauth2/start?rd=<original>,
+# which is a 302 to Keycloak. If the user already has a Keycloak
+# session (e.g. from logging into the console earlier), Keycloak's
+# silent redirect completes the OIDC flow without a prompt.
+
+resource "kubectl_manifest" "errors_redirect_middleware" {
+  count = var.forward_auth_enabled ? 1 : 0
+
+  yaml_body = yamlencode({
+    apiVersion = "traefik.io/v1alpha1"
+    kind       = "Middleware"
+    metadata = {
+      name      = "${var.release_name}-errors-redirect"
+      namespace = kubernetes_namespace.this.metadata[0].name
+      labels = {
+        "app.kubernetes.io/part-of" = "agent-platform"
+        "agent-platform/component"  = "oauth2-proxy"
+      }
+    }
+    spec = {
+      errors = {
+        status = ["401"]
+        service = {
+          name      = helm_release.oauth2_proxy.name
+          namespace = kubernetes_namespace.this.metadata[0].name
+          port      = 80
+        }
+        query = "/oauth2/start?rd={url}"
+      }
     }
   })
 

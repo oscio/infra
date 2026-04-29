@@ -11,8 +11,8 @@ bootstraps:
 3. A one-shot **bootstrap Job** that creates an OpenFGA **store** and
    writes the project-authz **authorization model** (FGA DSL). The Job
    captures the generated `store_id` + `auth_model_id` and writes them
-   into a Kubernetes **Secret** that downstream services (the Hermes
-   spawner) read at runtime.
+   into a Kubernetes **Secret** that downstream services (e.g. the
+   upcoming console module) read at runtime.
 
 ## Bootstrap flow
 
@@ -48,7 +48,7 @@ terraform apply    # re-creates both
 > Creating a *new* store wastes any existing tuples — but for model
 > evolution you usually want `fga model write` against the existing
 > store, not a brand-new store. The module bootstraps; runtime model
-> updates are the spawner's (or a human's) responsibility.
+> updates are the consuming service's (or a human's) responsibility.
 
 ## Outputs
 
@@ -56,7 +56,7 @@ terraform apply    # re-creates both
 |--------|---------|
 | `namespace`              | Namespace OpenFGA runs in (default `platform-openfga`). |
 | `service_name`           | `Service` name for the HTTP API. |
-| `service_dns`            | FQDN of the HTTP Service — what the spawner connects to. |
+| `service_dns`            | FQDN of the HTTP Service — what consumers connect to. |
 | `http_url`               | Full `http://<svc>:8080` URL. |
 | `grpc_service_dns`       | FQDN of the gRPC Service (`:8081`). |
 | `bootstrap_secret_name`  | `openfga-bootstrap` by default. |
@@ -65,7 +65,7 @@ terraform apply    # re-creates both
 
 ## Consuming the Secret
 
-The Hermes spawner should mount / read the Secret directly rather than
+Downstream consumers should mount / read the Secret directly rather than
 relying on Terraform outputs at runtime:
 
 ```yaml
@@ -78,8 +78,8 @@ env:
     valueFrom: { secretKeyRef: { name: openfga-bootstrap, key: auth_model_id } }
 ```
 
-(Cross-namespace mount requires mirroring the Secret — the spawner
-module will do that.)
+(Cross-namespace mount requires mirroring the Secret — the consumer
+module is responsible for that.)
 
 ## Authorization model (default)
 

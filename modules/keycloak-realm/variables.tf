@@ -10,16 +10,53 @@ variable "realm_display_name" {
   default     = "Agent Platform"
 }
 
+# --- Groups + users (data-driven) ---
+
+variable "groups" {
+  description = <<-EOT
+    Realm groups to create. Order doesn't matter; name uniqueness is
+    enforced by Keycloak. Membership is resolved by name in `var.users`.
+    The default is just `platform-admin` (wired into Forgejo/Harbor/
+    Grafana as the admin group). Add more for downstream RBAC.
+  EOT
+  type        = list(string)
+  default     = ["platform-admin"]
+}
+
+variable "users" {
+  description = <<-EOT
+    Realm users keyed by username. Each user object:
+
+      enabled            = bool, default true
+      email              = string
+      email_verified     = bool, default true
+      first_name         = string
+      last_name          = string
+      password           = string (sensitive)
+      password_temporary = bool. Force password change on first login.
+      groups             = list(string). Group names must exist in `var.groups`.
+
+    Pass an empty map to create no users.
+  EOT
+  type = map(object({
+    enabled            = optional(bool, true)
+    email              = string
+    email_verified     = optional(bool, true)
+    first_name         = optional(string, "")
+    last_name          = optional(string, "")
+    password           = string
+    password_temporary = optional(bool, true)
+    groups             = optional(list(string), [])
+  }))
+  default   = {}
+  sensitive = true
+}
+
 # --- Hostnames of the clients we're registering ---
 
 variable "oauth2_proxy_urls" {
-  description = "Base URLs oauth2-proxy handles (own hostname + every protected hostname). Each gets /oauth2/callback registered as a valid redirect URI. Example: ['https://oauth.dev.example.com', 'https://hermes.dev.example.com']."
+  description = "Base URLs oauth2-proxy handles (own hostname + every protected hostname). Each gets /oauth2/callback registered as a valid redirect URI. Example: ['https://oauth.dev.example.com', 'https://console.dev.example.com']."
   type        = list(string)
-}
-
-variable "argocd_url" {
-  description = "Base URL of Argo CD (e.g. https://argocd.dev.example.com)."
-  type        = string
 }
 
 variable "forgejo_url" {
@@ -42,16 +79,22 @@ variable "harbor_url" {
 
 # --- Client secrets (pre-shared with the consumers' tfvars) ---
 
+variable "oauth2_proxy_client_id" {
+  description = "OIDC client_id for oauth2-proxy. Must match the oauth2-proxy module's oidc_client_id."
+  type        = string
+  default     = "oauth2-proxy"
+}
+
 variable "oauth2_proxy_client_secret" {
   description = "OIDC client secret for oauth2-proxy. Must match the oauth2-proxy module's oidc_client_secret."
   type        = string
   sensitive   = true
 }
 
-variable "argocd_client_secret" {
-  description = "OIDC client secret for Argo CD. Must match the argocd module's oidc_client_secret."
+variable "forgejo_client_id" {
+  description = "OIDC client_id for Forgejo. Must match what the forgejo module passes as oidc_client_id."
   type        = string
-  sensitive   = true
+  default     = "forgejo"
 }
 
 variable "forgejo_client_secret" {
@@ -59,6 +102,12 @@ variable "forgejo_client_secret" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "harbor_client_id" {
+  description = "OIDC client_id for Harbor."
+  type        = string
+  default     = "harbor"
 }
 
 variable "harbor_client_secret" {
@@ -74,6 +123,50 @@ variable "grafana_url" {
   default     = ""
 }
 
+variable "console_url" {
+  description = "Base URL of the console app (e.g. https://console.dev.example.com). Leave empty to skip creating the console client. better-auth's genericOAuth plugin uses /api/auth/oauth2/callback/<providerId> as the redirect path."
+  type        = string
+  default     = ""
+}
+
+variable "console_client_id" {
+  description = "OIDC client_id for the console (better-auth)."
+  type        = string
+  default     = "console"
+}
+
+variable "console_client_secret" {
+  description = "OIDC client secret for the console. Required when console_url is set."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "argocd_url" {
+  description = "Base URL of Argo CD (e.g. https://cd.dev.example.com). Empty = skip the argocd OIDC client. Argo CD's redirect path is /auth/callback."
+  type        = string
+  default     = ""
+}
+
+variable "argocd_client_id" {
+  description = "OIDC client_id for Argo CD."
+  type        = string
+  default     = "argocd"
+}
+
+variable "argocd_client_secret" {
+  description = "OIDC client secret for Argo CD. Required when argocd_url is set."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "grafana_client_id" {
+  description = "OIDC client_id for Grafana."
+  type        = string
+  default     = "grafana"
+}
+
 variable "grafana_client_secret" {
   description = "OIDC client secret for Grafana. Required when grafana_url is set."
   type        = string
@@ -81,10 +174,22 @@ variable "grafana_client_secret" {
   sensitive   = true
 }
 
+variable "hermes_client_id" {
+  description = "OIDC client_id for the hermes-agent confidential client (token-exchange source). hermes-agent is the binary running inside each VM / agent-sandbox pod."
+  type        = string
+  default     = "hermes"
+}
+
 variable "hermes_client_secret" {
-  description = "OIDC client secret for the single `hermes` confidential client (used for token exchange to devpod). There is ONE Hermes user in the cluster."
+  description = "OIDC client secret for the `hermes` confidential client (used by hermes-agent for token exchange to devpod)."
   type        = string
   sensitive   = true
+}
+
+variable "devpod_client_id" {
+  description = "OIDC client_id for the DevPod token-exchange target."
+  type        = string
+  default     = "devpod"
 }
 
 # --- Token exchange (the key feature for agent impersonation) ---
@@ -95,44 +200,8 @@ variable "token_exchange_enabled" {
   default     = true
 }
 
-# --- Bootstrap admin user (optional) ---
-
-variable "bootstrap_admin_user" {
-  description = "Username of an initial platform admin user to create. Empty = skip."
-  type        = string
-  default     = ""
-}
-
-variable "bootstrap_admin_email" {
-  description = "Email for the bootstrap admin user."
-  type        = string
-  default     = ""
-}
-
-variable "bootstrap_admin_password" {
-  description = "Initial password for the bootstrap admin user. Temporary iff bootstrap_admin_password_temporary is true."
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "bootstrap_admin_password_temporary" {
-  description = "If true, the bootstrap admin must change their password on first login. Set false for dev clusters where the password in tfvars is the real password."
-  type        = bool
-  default     = true
-}
-
-variable "bootstrap_admin_first_name" {
-  description = "First name for the bootstrap admin user (optional)."
-  type        = string
-  default     = ""
-}
-
-variable "bootstrap_admin_last_name" {
-  description = "Last name for the bootstrap admin user (optional)."
-  type        = string
-  default     = ""
-}
+# All realm users go through `var.users`. No separate "bootstrap admin"
+# concept at the module level.
 
 variable "password_policy" {
   description = <<-EOT
