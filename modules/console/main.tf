@@ -352,6 +352,14 @@ resource "kubernetes_cluster_role_v1" "api_vms" {
     # (vms.service.bindToVm / unbindFromVm).
     verbs      = ["get", "list", "create", "delete", "deletecollection", "patch", "update"]
   }
+  # Per-VM SSH key Secret. Created by VmsService.create when an
+  # agent is attached (id_ed25519 + authorized_keys); deleted on
+  # VM teardown.
+  rule {
+    api_groups = [""]
+    resources  = ["secrets"]
+    verbs      = ["get", "list", "create", "delete", "patch", "update"]
+  }
   rule {
     api_groups = ["apps"]
     resources  = ["statefulsets"]
