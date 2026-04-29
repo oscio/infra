@@ -748,6 +748,7 @@ locals {
   agent_sandbox_repo_ref         = "main"
   agent_sandbox_image_ref        = "${local.image_registry}/agent-platform/agent-sandbox:latest"
   agent_sandbox_desktop_image_ref = "${local.image_registry}/agent-platform/agent-sandbox-desktop:latest"
+  agents_image_ref               = "${local.image_registry}/agent-platform/agents:latest"
 }
 
 # Auth for kaniko push — harbor admin via dockerconfigjson keyed by the
@@ -1163,6 +1164,9 @@ module "console" {
   # cluster's kaniko Jobs already build/push to Harbor.
   vm_image_base    = local.agent_sandbox_image_ref
   vm_image_desktop = local.agent_sandbox_desktop_image_ref
+  # Agent runtime — same image for headless agent pods and VM
+  # sidecars; entrypoint reads AGENT_TYPE at boot to dispatch.
+  agent_image      = local.agents_image_ref
   vm_domain        = "vm.${var.domain}"
 
   # Gate per-VM URLs through oauth2-proxy ForwardAuth — anyone

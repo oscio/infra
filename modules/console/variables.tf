@@ -196,6 +196,12 @@ variable "vm_image_desktop" {
   default     = ""
 }
 
+variable "agent_image" {
+  description = "Image ref the api uses for the agent runtime — both standalone Agent pods and VM-attached sidecars. The image's entrypoint reads AGENT_TYPE at boot to pick which adapter to dispatch on. E.g. cr.<domain>/agent-platform/agents:latest. Empty = agent feature disabled."
+  type        = string
+  default     = ""
+}
+
 variable "vm_domain" {
   description = "Hostname suffix used to derive `<vm-slug>.<vm_domain>` for each VM (e.g. vm.dev.example.com). Per-VM HTTPRoutes attach to the cluster Gateway under `<slug>-term.<vm_domain>` and `<slug>-vnc.<vm_domain>`."
   type        = string

@@ -295,10 +295,12 @@ resource "kubernetes_config_map" "app_env" {
     WEB_URL             = local.better_auth_url
     API_URL_INTERNAL    = local.api_internal_url
     NEXT_PUBLIC_API_URL = local.better_auth_url # browser never hits api directly; harmless fallback
-    # VM provisioning — the api creates StatefulSets in resource-vm-<owner>
-    # namespaces using these refs. Empty = VMs feature is non-functional.
+    # VM / Agent provisioning — the api creates StatefulSets in the
+    # unified `resource` namespace using these refs. Empty values
+    # disable the corresponding feature.
     VM_IMAGE_BASE        = var.vm_image_base
     VM_IMAGE_DESKTOP     = var.vm_image_desktop
+    AGENT_IMAGE          = var.agent_image
     VM_DOMAIN            = var.vm_domain
     VM_GATEWAY_NAME      = var.vm_gateway_name
     VM_GATEWAY_NAMESPACE = var.vm_gateway_namespace
