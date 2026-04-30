@@ -392,6 +392,30 @@ resource "kubernetes_cluster_role_v1" "api_vms" {
     resources  = ["middlewares"]
     verbs      = ["get", "list", "create", "delete", "patch", "update"]
   }
+  # Per-VM ServiceAccount + (Cluster)RoleBinding so kubectl in the
+  # workspace pod authenticates with its own identity. Default grant
+  # is namespace-admin (RoleBinding in `resource` ns); cluster-admin
+  # is opt-in via the VM create form.
+  rule {
+    api_groups = [""]
+    resources  = ["serviceaccounts"]
+    verbs      = ["get", "list", "create", "delete", "patch", "update"]
+  }
+  rule {
+    api_groups = ["rbac.authorization.k8s.io"]
+    resources  = ["rolebindings", "clusterrolebindings"]
+    verbs      = ["get", "list", "create", "delete", "patch", "update"]
+  }
+  # `bind` on the specific ClusterRoles we hand out. Without this,
+  # k8s rejects the RoleBinding/ClusterRoleBinding create with
+  # "user cannot bind clusterroles.rbac.authorization.k8s.io/<name>"
+  # — bind is enforced separately from create on (cluster)rolebindings.
+  rule {
+    api_groups     = ["rbac.authorization.k8s.io"]
+    resources      = ["clusterroles"]
+    resource_names = ["admin", "cluster-admin"]
+    verbs          = ["bind"]
+  }
 }
 
 resource "kubernetes_cluster_role_binding_v1" "api_vms" {
