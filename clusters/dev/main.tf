@@ -1219,6 +1219,27 @@ module "console" {
   ]
 }
 
+# Knative Serving — Phase-2 Functions runtime. Each function deploy
+# (POST /functions/<slug>/deploy) patches a Knative Service so the
+# user gets scale-to-zero + revision-pinned URLs without us building
+# a custom autoscaler. Kourier handles in-cluster ingress; external
+# routing through Traefik lands in Step 6 (Traefik HTTPRoute → Kourier
+# ClusterIP).
+module "knative_serving" {
+  source = "../../modules/knative-serving"
+  count  = var.knative_enabled ? 1 : 0
+
+  domain = "fn.${var.domain}"
+}
+
+# KEDA — event-driven autoscaling (cron, queue, custom metrics) for
+# Phase-2 functions. Knative Serving covers HTTP scale-to-zero; KEDA
+# fills in non-HTTP triggers (Lambda EventSourceMapping equivalent).
+module "keda" {
+  source = "../../modules/keda"
+  count  = var.keda_enabled ? 1 : 0
+}
+
 # Monitoring — kube-prometheus-stack (Prometheus, Alertmanager, Grafana,
 # node-exporter, kube-state-metrics) + Loki + Alloy (pod-log collector).
 # Grafana is fronted by Keycloak OIDC via the platform realm.

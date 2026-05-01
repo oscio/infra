@@ -603,6 +603,21 @@ variable "argocd_enabled" {
   default     = true
 }
 
+# --- Knative Serving (Phase-2 Functions runtime) ---
+
+variable "knative_enabled" {
+  description = "Install Knative Serving + Kourier for the Functions runtime. Adds ~30 CRDs and ~8 Deployments."
+  type        = bool
+  default     = true
+}
+
+variable "keda_enabled" {
+  description = "Install KEDA for event-driven autoscaling (cron / queue / custom triggers)."
+  type        = bool
+  default     = true
+}
+
+
 variable "argocd_admin_password" {
   description = "Plaintext password for the built-in `admin` user. Bcrypt-hashed at apply time. Break-glass; OIDC is the human path."
   type        = string
