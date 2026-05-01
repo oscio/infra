@@ -1154,6 +1154,17 @@ module "console" {
   openfga_namespace             = "platform-openfga"
   openfga_bootstrap_secret_name = "openfga-bootstrap"
 
+  # Forgejo cascade for Phase-2 functions: console-api creates a
+  # repo under <forgejo_function_org>/function-<slug> on every
+  # function create, and deletes it on function delete. Per-user
+  # auth is intentionally skipped — we use the platform admin
+  # account for all repo operations.
+  forgejo_internal_url      = var.forgejo_enabled ? "http://forgejo-http.platform-forgejo.svc.cluster.local:3000" : ""
+  forgejo_public_url        = var.forgejo_enabled ? "https://${local.forgejo_hostname}" : ""
+  forgejo_namespace         = "platform-forgejo"
+  forgejo_admin_secret_name = var.forgejo_enabled ? "forgejo-admin" : ""
+  forgejo_function_org      = "service"
+
   # In selfsigned mode, mirror the platform CA into the namespace and
   # mount it into web/api so Node.js (server-side fetch to Keycloak)
   # trusts the same root cert Traefik serves.

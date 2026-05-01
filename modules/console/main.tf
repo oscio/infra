@@ -53,6 +53,8 @@ locals {
   app_env_cm                = "${var.release_name}-env"
   app_secret_name           = "${var.release_name}-secret"
   openfga_secret_local_name = var.openfga_bootstrap_secret_name # mirror keeps the same name
+  forgejo_secret_local_name = "${var.release_name}-forgejo-admin"
+  forgejo_enabled           = var.forgejo_admin_secret_name != "" && var.forgejo_internal_url != ""
 
   # The dockerconfigjson body — base64-encoded by the API server when we
   # set `data` as a raw string (Kubernetes provider handles the encode).
@@ -276,6 +278,39 @@ resource "kubernetes_secret" "openfga_bootstrap_mirror" {
     OPENFGA_STORE_ID      = lookup(data.kubernetes_secret_v1.openfga_bootstrap.data, "store_id", "")
     OPENFGA_AUTH_MODEL_ID = lookup(data.kubernetes_secret_v1.openfga_bootstrap.data, "auth_model_id", "")
     OPENFGA_STORE_NAME    = lookup(data.kubernetes_secret_v1.openfga_bootstrap.data, "store_name", "")
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Forgejo admin Secret mirror.
+# Same trick as openfga: source Secret lives in platform-forgejo, but
+# k8s envFrom can't cross namespaces, so we read it via data and write
+# a copy with the env-var keys the FunctionsService expects.
+# ---------------------------------------------------------------------------
+data "kubernetes_secret_v1" "forgejo_admin" {
+  count = local.forgejo_enabled ? 1 : 0
+
+  metadata {
+    name      = var.forgejo_admin_secret_name
+    namespace = var.forgejo_namespace
+  }
+}
+
+resource "kubernetes_secret" "forgejo_admin_mirror" {
+  count = local.forgejo_enabled ? 1 : 0
+
+  metadata {
+    name      = local.forgejo_secret_local_name
+    namespace = kubernetes_namespace.this.metadata[0].name
+    labels    = local.labels
+  }
+  type = "Opaque"
+  data = {
+    FORGEJO_INTERNAL_URL   = var.forgejo_internal_url
+    FORGEJO_PUBLIC_URL     = var.forgejo_public_url
+    FORGEJO_FUNCTION_ORG   = var.forgejo_function_org
+    FORGEJO_ADMIN_USER     = lookup(data.kubernetes_secret_v1.forgejo_admin[0].data, "username", "")
+    FORGEJO_ADMIN_PASSWORD = lookup(data.kubernetes_secret_v1.forgejo_admin[0].data, "password", "")
   }
 }
 

@@ -171,6 +171,39 @@ variable "openfga_bootstrap_secret_name" {
   default     = "openfga-bootstrap"
 }
 
+# --- Forgejo (consumed by the Functions module to provision repos) ---
+# When forgejo_admin_secret_name is empty the console-api falls back
+# to DB-only function CRUD — useful for environments without Forgejo.
+variable "forgejo_internal_url" {
+  description = "Cluster-internal Forgejo base URL, e.g. http://forgejo-http.platform-forgejo.svc.cluster.local:3000."
+  type        = string
+  default     = ""
+}
+
+variable "forgejo_public_url" {
+  description = "User-facing Forgejo base URL, e.g. https://git.<domain>. Used for 'Open in Forgejo' links."
+  type        = string
+  default     = ""
+}
+
+variable "forgejo_namespace" {
+  description = "Namespace where Forgejo + the admin Secret live."
+  type        = string
+  default     = "platform-forgejo"
+}
+
+variable "forgejo_admin_secret_name" {
+  description = "Name of the Secret carrying Forgejo admin Basic-auth creds (keys: username, password). Empty disables the Forgejo cascade."
+  type        = string
+  default     = ""
+}
+
+variable "forgejo_function_org" {
+  description = "Org under which Phase-2 function repos are created."
+  type        = string
+  default     = "service"
+}
+
 # --- Image rollout policy ---
 variable "image_pull_policy" {
   description = "imagePullPolicy for the console Deployments. `Always` pairs with Keel-driven rollouts on `:latest`."
