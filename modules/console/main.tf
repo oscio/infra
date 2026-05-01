@@ -427,6 +427,20 @@ resource "kubernetes_cluster_role_v1" "api_vms" {
     resources  = ["middlewares"]
     verbs      = ["get", "list", "create", "delete", "patch", "update"]
   }
+  # ConfigMaps + Knative Services are how Phase-2 Functions surface a
+  # dev runtime: per-function ConfigMap holds the user folder, the
+  # Knative Service mounts it. console-api creates+rolls these on
+  # save in the editor.
+  rule {
+    api_groups = [""]
+    resources  = ["configmaps"]
+    verbs      = ["get", "list", "create", "delete", "patch", "update"]
+  }
+  rule {
+    api_groups = ["serving.knative.dev"]
+    resources  = ["services"]
+    verbs      = ["get", "list", "create", "delete", "patch", "update"]
+  }
   # Per-VM ServiceAccount + (Cluster)RoleBinding so kubectl in the
   # workspace pod authenticates with its own identity. Default grant
   # is namespace-admin (RoleBinding in `resource` ns); cluster-admin
