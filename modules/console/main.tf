@@ -340,8 +340,9 @@ resource "kubernetes_config_map" "app_env" {
     # Phase-2 Functions runtime — both vars are used by the
     # FunctionsService dev path (per-function Knative Service +
     # ConfigMap mount + invoke proxy through Kourier).
-    FUNCTION_DEV_IMAGE = var.function_dev_image
-    FUNCTION_DOMAIN    = var.function_domain
+    FUNCTION_DEV_IMAGE    = var.function_dev_image
+    FUNCTION_DOMAIN       = var.function_domain
+    FUNCTION_IMAGE_PREFIX = var.function_image_prefix
     VM_GATEWAY_NAME      = var.vm_gateway_name
     VM_GATEWAY_NAMESPACE = var.vm_gateway_namespace
     # ForwardAuth chain for the per-VM Middlewares the api clones
@@ -500,6 +501,13 @@ resource "kubernetes_secret" "app_secret" {
     DATABASE_URL           = local.pg_uri
     BETTER_AUTH_SECRET     = var.better_auth_secret
     KEYCLOAK_CLIENT_SECRET = var.keycloak_client_secret
+    # Phase-2 Functions Deploy flow needs Harbor creds so console-api
+    # can mirror them as Forgejo org secrets on the `service` org —
+    # without that, function repos can't `docker login` to Harbor and
+    # the build workflow fails. Reusing the same admin creds the
+    # harbor_pull dockerconfig is built from.
+    HARBOR_USER  = var.harbor_username
+    HARBOR_TOKEN = var.harbor_password
   }
 }
 

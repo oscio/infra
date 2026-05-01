@@ -253,6 +253,12 @@ variable "function_domain" {
   default     = ""
 }
 
+variable "function_image_prefix" {
+  description = "Image prefix the Deploy flow patches Knative Services onto. Each function's built image lives at <prefix>/<slug>:<sha>. E.g. cr.<domain>/agent-platform/functions."
+  type        = string
+  default     = ""
+}
+
 # --- Argo CD-managed Deployments (replaces Keel auto-roll path) -----
 
 variable "argocd_managed_deployments" {
