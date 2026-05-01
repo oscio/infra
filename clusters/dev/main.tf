@@ -1180,6 +1180,11 @@ module "console" {
   agent_image      = local.agents_image_ref
   vm_domain        = "vm.${var.domain}"
 
+  # Phase-2 Functions dev runtime — image + auto-domain that match
+  # what module.knative_serving wires (config-domain points here).
+  function_dev_image = "${local.image_registry}/agent-platform/function-dev-python:latest"
+  function_domain    = "fn.${var.domain}"
+
   # Gate per-VM URLs through oauth2-proxy ForwardAuth — anyone
   # opening vm-XXX-term.vm.<domain> needs a Keycloak session first.
   # The api clones a tiny Traefik Middleware into each VM namespace
