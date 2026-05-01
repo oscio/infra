@@ -37,23 +37,38 @@ locals {
       type = var.service_type
     }
     ports = {
-      web = {
-        port        = 8000
-        exposedPort = 80
-        expose      = { default = true }
-        protocol    = "TCP"
-        # HTTPS redirect is only safe when TLS is actually configured on
-        # websecure; otherwise we get an infinite 301 loop. Enable the block
-        # conditionally via yamlencode-level merge (see http_redirect_override).
-        transport = {
-          respondingTimeouts = {
-            readTimeout       = "${var.entrypoint_timeout_seconds}s"
-            writeTimeout      = "${var.entrypoint_timeout_seconds}s"
-            idleTimeout       = "${var.entrypoint_timeout_seconds}s"
-            readHeaderTimeout = "60s"
+      web = merge(
+        {
+          port        = 8000
+          exposedPort = 80
+          expose      = { default = true }
+          protocol    = "TCP"
+          transport = {
+            respondingTimeouts = {
+              readTimeout       = "${var.entrypoint_timeout_seconds}s"
+              writeTimeout      = "${var.entrypoint_timeout_seconds}s"
+              idleTimeout       = "${var.entrypoint_timeout_seconds}s"
+              readHeaderTimeout = "60s"
+            }
           }
-        }
-      }
+        },
+        # Permanent 301 to websecure when TLS is on. Skipped without TLS to
+        # avoid an infinite 301 loop on plain-HTTP dev clusters. Catches
+        # everything at the entryPoint layer, so HTTPRoutes don't have to
+        # opt-in per route. Chart schema requires the redirection block to
+        # nest under `http`.
+        var.tls_enabled ? {
+          http = {
+            redirections = {
+              entryPoint = {
+                to        = "websecure"
+                scheme    = "https"
+                permanent = true
+              }
+            }
+          }
+        } : {},
+      )
       websecure = {
         port        = 8443
         exposedPort = 443
