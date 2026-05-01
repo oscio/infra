@@ -9,6 +9,12 @@ variable "registries_skipping_tag_resolving" {
   default     = "cr.dev.openschema.io"
 }
 
+variable "function_namespace" {
+  description = "Namespace where console-api creates per-function HTTPRoutes. ReferenceGrant in kourier-system allows them to backend-ref the kourier Service."
+  type        = string
+  default     = "resource"
+}
+
 variable "namespace" {
   description = "Namespace for the Knative Serving control plane."
   type        = string

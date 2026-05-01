@@ -1,6 +1,7 @@
 terraform {
   required_providers {
     kubernetes = { source = "hashicorp/kubernetes", version = "~> 2.31" }
+    kubectl    = { source = "alekc/kubectl", version = "~> 2.1" }
   }
 }
 
@@ -34,8 +35,46 @@ resource "kubernetes_config_map_v1_data" "config_network" {
   }
   data = {
     "ingress-class" = "kourier.ingress.networking.knative.dev"
+    # Drop the namespace segment from the auto-generated URL so each
+    # Knative Service's external host is `<name>.<domain>` instead of
+    # `<name>.<ns>.<domain>`. With every function in the same `resource`
+    # namespace the segment was just noise — and the platform-gateway
+    # listener is a single-label wildcard (`*.fn.<domain>`), which only
+    # matches the shorter form.
+    "domain-template" = "{{.Name}}.{{.Domain}}"
   }
   force = true
+}
+
+# Allow HTTPRoutes in `resource` (where console-api creates per-function
+# routes) to backend-ref the `kourier` Service in `kourier-system`.
+# Cross-namespace backend refs require an explicit ReferenceGrant by
+# the Gateway API spec.
+resource "kubectl_manifest" "kourier_reference_grant" {
+  yaml_body = yamlencode({
+    apiVersion = "gateway.networking.k8s.io/v1beta1"
+    kind       = "ReferenceGrant"
+    metadata = {
+      name      = "function-routes-to-kourier"
+      namespace = "kourier-system"
+    }
+    spec = {
+      from = [
+        {
+          group     = "gateway.networking.k8s.io"
+          kind      = "HTTPRoute"
+          namespace = var.function_namespace
+        },
+      ]
+      to = [
+        {
+          group = ""
+          kind  = "Service"
+          name  = "kourier"
+        },
+      ]
+    }
+  })
 }
 
 resource "kubernetes_config_map_v1_data" "config_domain" {
