@@ -296,6 +296,14 @@ resource "keycloak_openid_client" "console" {
     # BETTER_AUTH_URL, which on a developer machine is localhost:3000.
     "http://localhost:3000/api/auth/oauth2/callback/keycloak",
   ]
+  # Sign-out flow: api/auth/keycloak-logout 302s to Keycloak's
+  # end_session_endpoint with post_logout_redirect_uri pointing back to
+  # /sign-in. Keycloak refuses anything not on this list with "invalid
+  # logout uri", so wire both the platform URL and the local-dev URL.
+  valid_post_logout_redirect_uris = [
+    "${var.console_url}/sign-in",
+    "http://localhost:3000/sign-in",
+  ]
   web_origins = [var.console_url, "http://localhost:3000"]
 }
 
