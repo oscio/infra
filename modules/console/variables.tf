@@ -241,6 +241,18 @@ variable "vm_domain" {
   default     = "vm.localhost"
 }
 
+variable "function_dev_image" {
+  description = "Image ref console-api spawns the per-function dev Knative Service from. ConfigMap-mounted user folder + this image's runner = no-build edit/test loop. E.g. cr.<domain>/agent-platform/function-dev-python:latest."
+  type        = string
+  default     = ""
+}
+
+variable "function_domain" {
+  description = "Domain Knative auto-generates Service URLs under (matches knative-serving's config-domain). console-api uses this to build the Host header when proxying Test-tab invocations through Kourier. E.g. fn.dev.example.com."
+  type        = string
+  default     = ""
+}
+
 # --- Argo CD-managed Deployments (replaces Keel auto-roll path) -----
 
 variable "argocd_managed_deployments" {

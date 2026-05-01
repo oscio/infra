@@ -337,6 +337,11 @@ resource "kubernetes_config_map" "app_env" {
     VM_IMAGE_DESKTOP     = var.vm_image_desktop
     AGENT_IMAGE          = var.agent_image
     VM_DOMAIN            = var.vm_domain
+    # Phase-2 Functions runtime — both vars are used by the
+    # FunctionsService dev path (per-function Knative Service +
+    # ConfigMap mount + invoke proxy through Kourier).
+    FUNCTION_DEV_IMAGE = var.function_dev_image
+    FUNCTION_DOMAIN    = var.function_domain
     VM_GATEWAY_NAME      = var.vm_gateway_name
     VM_GATEWAY_NAMESPACE = var.vm_gateway_namespace
     # ForwardAuth chain for the per-VM Middlewares the api clones
