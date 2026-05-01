@@ -48,3 +48,19 @@ resource "kubernetes_config_map_v1_data" "config_domain" {
   }
   force = true
 }
+
+# Knative resolves `image: foo:tag` to a digest before scheduling, by
+# making an HTTPS HEAD against the registry. Self-signed Harbor in
+# the dev cluster makes that round-trip fail with x509:unknown-authority,
+# so registries listed here are exempt from the resolution step. The
+# kubelet still pulls (over its own host trust path).
+resource "kubernetes_config_map_v1_data" "config_deployment" {
+  metadata {
+    name      = "config-deployment"
+    namespace = var.namespace
+  }
+  data = {
+    "registries-skipping-tag-resolving" = var.registries_skipping_tag_resolving
+  }
+  force = true
+}

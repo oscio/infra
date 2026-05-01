@@ -3,6 +3,12 @@ variable "domain" {
   type        = string
 }
 
+variable "registries_skipping_tag_resolving" {
+  description = "Comma-separated registry hostnames Knative skips tag→digest resolution for. Avoids x509 errors against self-signed Harbor in dev."
+  type        = string
+  default     = "cr.dev.openschema.io"
+}
+
 variable "namespace" {
   description = "Namespace for the Knative Serving control plane."
   type        = string
