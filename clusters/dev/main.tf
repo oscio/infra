@@ -1164,6 +1164,7 @@ module "console" {
   forgejo_namespace         = "platform-forgejo"
   forgejo_admin_secret_name = var.forgejo_enabled ? "forgejo-admin" : ""
   forgejo_function_org      = "service"
+  forgejo_template_org      = var.forgejo_fork_owner
 
   # In selfsigned mode, mirror the platform CA into the namespace and
   # mount it into web/api so Node.js (server-side fetch to Keycloak)
@@ -1180,9 +1181,12 @@ module "console" {
   agent_image      = local.agents_image_ref
   vm_domain        = "vm.${var.domain}"
 
-  # Phase-2 Functions dev runtime — image + auto-domain that match
-  # what module.knative_serving wires (config-domain points here).
-  function_dev_image    = "${local.image_registry}/agent-platform/function-dev-python:latest"
+  # Phase-2 Functions dev runtime — same image as the per-function
+  # template (the runner + Dockerfile is identical, dev pods just
+  # ConfigMap-mount the user's `function/` over whatever the image
+  # baked in). Built by the forked function-template-base-python repo
+  # via its build.yml on first push.
+  function_dev_image    = "${local.image_registry}/agent-platform/functions/function-template-base-python:latest"
   function_domain       = "fn.${var.domain}"
   function_image_prefix = "${local.image_registry}/agent-platform/functions"
 

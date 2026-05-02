@@ -309,6 +309,7 @@ resource "kubernetes_secret" "forgejo_admin_mirror" {
     FORGEJO_INTERNAL_URL   = var.forgejo_internal_url
     FORGEJO_PUBLIC_URL     = var.forgejo_public_url
     FORGEJO_FUNCTION_ORG   = var.forgejo_function_org
+    FORGEJO_TEMPLATE_ORG   = var.forgejo_template_org
     FORGEJO_ADMIN_USER     = lookup(data.kubernetes_secret_v1.forgejo_admin[0].data, "username", "")
     FORGEJO_ADMIN_PASSWORD = lookup(data.kubernetes_secret_v1.forgejo_admin[0].data, "password", "")
   }

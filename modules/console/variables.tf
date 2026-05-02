@@ -204,6 +204,12 @@ variable "forgejo_function_org" {
   default     = "service"
 }
 
+variable "forgejo_template_org" {
+  description = "Org tf forks the platform-managed template repos into (function-template-base-python, ...). Console-api forks user functions FROM this org."
+  type        = string
+  default     = "platform"
+}
+
 # --- Image rollout policy ---
 variable "image_pull_policy" {
   description = "imagePullPolicy for the console Deployments. `Always` pairs with Keel-driven rollouts on `:latest`."
