@@ -74,6 +74,39 @@ variable "cache_storage_size" {
   default     = "10Gi"
 }
 
+# --- Cache pruning sidecar ---
+# Without periodic pruning, DinD's /var/lib/docker grows unboundedly
+# (every workflow leaves layers behind). The local-path provisioner
+# does NOT enforce the requested PVC size, so the cache silently
+# eats the host disk and eventually trips DiskPressure on the node,
+# blocking ALL pod scheduling. The sidecar runs `docker system
+# prune` against the DinD daemon on a fixed cadence + a free-space
+# watermark to keep the cache bounded.
+
+variable "cache_prune_image" {
+  description = "Image used by the cache-pruner sidecar. Needs the docker CLI."
+  type        = string
+  default     = "docker:24-cli"
+}
+
+variable "cache_prune_interval_seconds" {
+  description = "Seconds between routine prune passes. Each pass removes images / build cache older than `cache_prune_until_age` so caches still help across back-to-back builds."
+  type        = number
+  default     = 21600 # 6 hours
+}
+
+variable "cache_prune_until_age" {
+  description = "Docker `until=` filter argument for routine prunes (e.g. `24h`, `7d`). Sets the minimum age of items to evict; recent layers stay so warm builds remain fast."
+  type        = string
+  default     = "24h"
+}
+
+variable "cache_prune_emergency_pct" {
+  description = "Filesystem-use percentage at which the sidecar performs an UNFILTERED `docker system prune -af --volumes` regardless of `until_age`. Set to 0 to disable the emergency path."
+  type        = number
+  default     = 75
+}
+
 # --- Resources ---
 
 variable "runner_cpu_request" {

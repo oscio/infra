@@ -246,6 +246,68 @@ resource "kubernetes_stateful_set_v1" "runner" {
           }
         }
 
+        # --- Cache pruner sidecar ---
+        # Periodic + watermark-driven `docker system prune` against
+        # the DinD daemon. Without this the build cache fills the
+        # underlying host disk (local-path doesn't enforce the
+        # requested PVC size), eventually tripping DiskPressure on
+        # the node and blocking ALL pod scheduling cluster-wide.
+        # Mounts the same `cache` PVC that DinD uses so it can read
+        # filesystem-use directly for the watermark check.
+        container {
+          name    = "cache-pruner"
+          image   = var.cache_prune_image
+          command = ["sh", "-c"]
+          args = [
+            <<-EOT
+              set -u
+              # Wait for DinD to start serving on the local TCP socket
+              # before we send any commands.
+              for i in $(seq 1 60); do
+                if docker -H tcp://127.0.0.1:2375 info >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              while true; do
+                # Emergency pass: if filesystem usage on the cache
+                # mount exceeds the watermark, drop EVERYTHING
+                # (untagged + tagged images, build cache, volumes)
+                # before we run out of host disk and trip
+                # DiskPressure on the node.
+                if [ ${var.cache_prune_emergency_pct} -gt 0 ]; then
+                  PCT=$(df -P /var/lib/docker | awk 'NR==2 { gsub("%","",$5); print $5+0 }')
+                  if [ "$${PCT:-0}" -ge ${var.cache_prune_emergency_pct} ]; then
+                    echo "[cache-pruner] $(date -u +%FT%TZ) EMERGENCY: cache fs $${PCT}% used → full prune"
+                    docker -H tcp://127.0.0.1:2375 system prune -af --volumes >/dev/null 2>&1 || true
+                    docker -H tcp://127.0.0.1:2375 builder prune -af >/dev/null 2>&1 || true
+                  fi
+                fi
+
+                # Routine pass: keep recent layers (workflows often
+                # build the same images back-to-back), drop old.
+                echo "[cache-pruner] $(date -u +%FT%TZ) routine prune until=${var.cache_prune_until_age}"
+                docker -H tcp://127.0.0.1:2375 system prune -af --filter "until=${var.cache_prune_until_age}" >/dev/null 2>&1 || true
+                docker -H tcp://127.0.0.1:2375 builder prune -af --filter "until=${var.cache_prune_until_age}" >/dev/null 2>&1 || true
+
+                sleep ${var.cache_prune_interval_seconds}
+              done
+            EOT
+          ]
+          resources {
+            requests = { cpu = "10m", memory = "32Mi" }
+            limits   = { cpu = "200m", memory = "128Mi" }
+          }
+          # Read-only access to the same cache volume so `df` can see
+          # actual filesystem-use even though DinD owns the writes.
+          volume_mount {
+            name       = "cache"
+            mount_path = "/var/lib/docker"
+            sub_path   = "dind"
+            read_only  = true
+          }
+        }
+
         # --- Runner container ---
         container {
           name  = "runner"
